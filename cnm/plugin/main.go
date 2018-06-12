@@ -14,7 +14,6 @@ import (
 	"github.com/Azure/azure-container-networking/common"
 	"github.com/Azure/azure-container-networking/log"
 	"github.com/Azure/azure-container-networking/platform"
-	"github.com/Azure/azure-container-networking/store"
 )
 
 const (
@@ -146,13 +145,6 @@ func main() {
 	err = common.CreateDirectory(platform.CNMRuntimePath)
 	if err != nil {
 		fmt.Printf("Failed to create File Store directory Error:%v", err.Error())
-		return
-	}
-
-	// Create the key value store.
-	config.Store, err = store.NewJsonFileStore(platform.CNMRuntimePath + name + ".json")
-	if err != nil {
-		fmt.Printf("Failed to create store: %v\n", err)
 		return
 	}
 

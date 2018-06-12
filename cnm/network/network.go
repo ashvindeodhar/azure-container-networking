@@ -8,6 +8,7 @@ import (
 	"net/http"
 
 	"github.com/Azure/azure-container-networking/cnm"
+	"github.com/Azure/azure-container-networking/cns/client"
 	"github.com/Azure/azure-container-networking/common"
 	"github.com/Azure/azure-container-networking/log"
 	"github.com/Azure/azure-container-networking/network"
@@ -28,8 +29,9 @@ const (
 // NetPlugin represents a CNM (libnetwork) network plugin.
 type netPlugin struct {
 	*cnm.Plugin
-	scope string
-	nm    network.NetworkManager
+	scope     string
+	cnsClient cnsclient.Client
+	serveMux  *http.ServeMux
 }
 
 type NetPlugin interface {
@@ -44,18 +46,15 @@ func NewPlugin(config *common.PluginConfig) (NetPlugin, error) {
 		return nil, err
 	}
 
-	// Setup network manager.
-	nm, err := network.NewNetworkManager()
-	if err != nil {
-		return nil, err
-	}
+	client := cnsclient.NewClient()
+	// ashvin - pass this client thru config to ipam
 
-	config.NetApi = nm
+	config.NetApi = nil
 
 	return &netPlugin{
-		Plugin: plugin,
-		scope:  scope,
-		nm:     nm,
+		Plugin:    plugin,
+		scope:     scope,
+		cnsClient: client,
 	}, nil
 }
 
@@ -65,13 +64,6 @@ func (plugin *netPlugin) Start(config *common.PluginConfig) error {
 	err := plugin.Initialize(config)
 	if err != nil {
 		log.Printf("[net] Failed to initialize base plugin, err:%v.", err)
-		return err
-	}
-
-	// Initialize network manager.
-	err = plugin.nm.Initialize(config)
-	if err != nil {
-		log.Printf("[net] Failed to initialize network manager, err:%v.", err)
 		return err
 	}
 
@@ -102,7 +94,6 @@ func (plugin *netPlugin) Start(config *common.PluginConfig) error {
 // Stop stops the plugin.
 func (plugin *netPlugin) Stop() {
 	plugin.DisableDiscovery()
-	plugin.nm.Uninitialize()
 	plugin.Uninitialize()
 	log.Printf("[net] Plugin stopped.")
 }
@@ -165,7 +156,7 @@ func (plugin *netPlugin) createNetwork(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	err = plugin.nm.CreateNetwork(&nwInfo)
+	err = plugin.cnsClient.CreateNetwork(&nwInfo)
 	if err != nil {
 		plugin.SendErrorResponse(w, err)
 		return
@@ -190,7 +181,7 @@ func (plugin *netPlugin) deleteNetwork(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Process request.
-	err = plugin.nm.DeleteNetwork(req.NetworkID)
+	err = plugin.cnsClient.DeleteNetwork(req.NetworkID)
 	if err != nil {
 		plugin.SendErrorResponse(w, err)
 		return
@@ -231,7 +222,7 @@ func (plugin *netPlugin) createEndpoint(w http.ResponseWriter, r *http.Request) 
 		IPAddresses: []net.IPNet{*ipv4Address},
 	}
 
-	err = plugin.nm.CreateEndpoint(req.NetworkID, &epInfo)
+	err = plugin.cnsClient.CreateEndpoint(req.NetworkID, &epInfo)
 	if err != nil {
 		plugin.SendErrorResponse(w, err)
 		return
@@ -257,7 +248,7 @@ func (plugin *netPlugin) deleteEndpoint(w http.ResponseWriter, r *http.Request) 
 	}
 
 	// Process request.
-	err = plugin.nm.DeleteEndpoint(req.NetworkID, req.EndpointID)
+	err = plugin.cnsClient.DeleteEndpoint(req.NetworkID, req.EndpointID)
 	if err != nil {
 		plugin.SendErrorResponse(w, err)
 		return
@@ -282,7 +273,8 @@ func (plugin *netPlugin) join(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Process request.
-	ep, err := plugin.nm.AttachEndpoint(req.NetworkID, req.EndpointID, req.SandboxKey)
+	// ashvin - check if this works - you are returning an epInfo instead of ep.
+	epInfo, err := plugin.cnsClient.AttachEndpoint(req.NetworkID, req.EndpointID, req.SandboxKey)
 	if err != nil {
 		plugin.SendErrorResponse(w, err)
 		return
@@ -290,13 +282,13 @@ func (plugin *netPlugin) join(w http.ResponseWriter, r *http.Request) {
 
 	// Encode response.
 	ifname := interfaceName{
-		SrcName:   ep.IfName,
+		SrcName:   epInfo.IfName,
 		DstPrefix: containerInterfacePrefix,
 	}
 
 	resp := joinResponse{
 		InterfaceName: ifname,
-		Gateway:       ep.Gateways[0].String(),
+		Gateway:       epInfo.Gateways[0].String(),
 	}
 
 	err = plugin.Listener.Encode(w, &resp)
@@ -316,7 +308,7 @@ func (plugin *netPlugin) leave(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Process request.
-	err = plugin.nm.DetachEndpoint(req.NetworkID, req.EndpointID)
+	err = plugin.cnsClient.DetachEndpoint(req.NetworkID, req.EndpointID)
 	if err != nil {
 		plugin.SendErrorResponse(w, err)
 		return
@@ -341,7 +333,7 @@ func (plugin *netPlugin) endpointOperInfo(w http.ResponseWriter, r *http.Request
 	}
 
 	// Process request.
-	epInfo, err := plugin.nm.GetEndpointInfo(req.NetworkID, req.EndpointID)
+	epInfo, err := plugin.cnsClient.GetEndpointInfo(req.NetworkID, req.EndpointID)
 	if err != nil {
 		plugin.SendErrorResponse(w, err)
 		return

@@ -146,10 +146,13 @@ func main() {
 	// Create the key value store.
 	var err error
 	config.Store, err = store.NewJsonFileStore(platform.CNMRuntimePath + name + ".json")
+	log.Printf("ashvind - store %v", platform.CNMRuntimePath+name+".json")
 	if err != nil {
 		fmt.Printf("Failed to create store: %v\n", err)
 		return
 	}
+
+	log.Printf("ashvind - created store %v", platform.CNMRuntimePath+name+".json")
 
 	// Create CNS object.
 	httpRestService, err := restserver.NewHTTPRestService(&config)
@@ -184,13 +187,6 @@ func main() {
 		return
 	}
 
-	// Create the key value store.
-	pluginConfig.Store, err = store.NewJsonFileStore(platform.CNMRuntimePath + pluginName + ".json")
-	if err != nil {
-		fmt.Printf("Failed to create store: %v\n", err)
-		return
-	}
-
 	// Create logging provider.
 	log.SetName(name)
 	log.SetLevel(logLevel)
@@ -209,6 +205,19 @@ func main() {
 
 	// Set CNS options.
 	httpRestService.SetOption(acn.OptCnsURL, cnsURL)
+
+	////////////////////////////////////////////////////
+	// for nm - not needed to pass to nm
+	httpRestService.SetOption(acn.OptAPIServerURL, url)
+
+	// for am
+	httpRestService.SetOption(acn.OptEnvironment, environment)
+	httpRestService.SetOption(acn.OptAPIServerURL, url)
+	httpRestService.SetOption(acn.OptIpamQueryUrl, ipamQueryUrl)
+	httpRestService.SetOption(acn.OptIpamQueryInterval, ipamQueryInterval)
+	///////////////////////////////////////////////////
+
+	// ashvin - add defer here to uninit nm and am in the service that release the locks
 
 	// Start CNS.
 	if httpRestService != nil {

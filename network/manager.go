@@ -41,8 +41,10 @@ type NetworkManager interface {
 	CreateEndpoint(networkId string, epInfo *EndpointInfo) error
 	DeleteEndpoint(networkId string, endpointId string) error
 	GetEndpointInfo(networkId string, endpointId string) (*EndpointInfo, error)
-	AttachEndpoint(networkId string, endpointId string, sandboxKey string) (*endpoint, error)
+	AttachEndpoint(networkId string, endpointId string, sandboxKey string) (*EndpointInfo, error)
 	DetachEndpoint(networkId string, endpointId string) error
+
+	Initialize2() error
 }
 
 // Creates a new network manager.
@@ -57,7 +59,30 @@ func NewNetworkManager() (NetworkManager, error) {
 // Initialize configures network manager.
 func (nm *networkManager) Initialize(config *common.PluginConfig) error {
 	nm.Version = config.Version
-	nm.store = config.Store
+
+	// Restore persisted state.
+	err := nm.restore()
+	return err
+}
+
+// Initialize configures network manager.
+func (nm *networkManager) Initialize2() error {
+	//ashvin - remove the nm.Version - what's the need?
+	log.Printf("ashvind - initialize2 path :%v.", platform.CNIRuntimePath+"azure-vnet.json")
+	// Create the key value store.
+	if nm.store == nil { // ashvind - due to uninit setting to null - does this always create a new file?
+		var err error
+		nm.store, err = store.NewJsonFileStore(platform.CNIRuntimePath + "azure-vnet.json")
+		if err != nil {
+			log.Printf("ashvind [cni] Failed to create store, err:%v.", err)
+			return err
+		}
+	}
+
+	if err := nm.store.Lock(true); err != nil {
+		log.Printf("[net] Timed out on locking store, err:%v.", err)
+		return err
+	}
 
 	// Restore persisted state.
 	err := nm.restore()
@@ -66,6 +91,20 @@ func (nm *networkManager) Initialize(config *common.PluginConfig) error {
 
 // Uninitialize cleans up network manager.
 func (nm *networkManager) Uninitialize() {
+	log.Printf("ashvind nm unintialize")
+	nm.Lock()
+	defer nm.Unlock()
+
+	nm.save()
+
+	if nm.store != nil {
+		if err := nm.store.Unlock(); err != nil {
+			log.Printf(" ashvind nm Failed to unlock")
+		}
+	}
+
+	//plugin.Store = nil
+
 }
 
 // Restore reads network manager state from persistent store.
@@ -300,7 +339,7 @@ func (nm *networkManager) GetEndpointInfo(networkId string, endpointId string) (
 }
 
 // AttachEndpoint attaches an endpoint to a sandbox.
-func (nm *networkManager) AttachEndpoint(networkId string, endpointId string, sandboxKey string) (*endpoint, error) {
+func (nm *networkManager) AttachEndpoint(networkId string, endpointId string, sandboxKey string) (*EndpointInfo, error) {
 	nm.Lock()
 	defer nm.Unlock()
 
@@ -324,7 +363,7 @@ func (nm *networkManager) AttachEndpoint(networkId string, endpointId string, sa
 		return nil, err
 	}
 
-	return ep, nil
+	return ep.getInfo(), nil
 }
 
 // DetachEndpoint detaches an endpoint from its sandbox.

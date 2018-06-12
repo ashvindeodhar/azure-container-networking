@@ -1,11 +1,7 @@
-// Copyright 2017 Microsoft. All rights reserved.
+// Copyright 2017-2018 Microsoft. All rights reserved.
 // MIT License
 
 package common
-
-import (
-	"github.com/Azure/azure-container-networking/store"
-)
 
 // Plugin is the parent class that implements behavior common to all plugins.
 type Plugin struct {
@@ -13,7 +9,7 @@ type Plugin struct {
 	Version string
 	Options map[string]interface{}
 	ErrChan chan error
-	Store   store.KeyValueStore
+	//cnsClient cnsClient
 }
 
 // Plugin base interface.
@@ -40,7 +36,6 @@ type PluginConfig struct {
 	IpamApi  IpamApi
 	Listener *Listener
 	ErrChan  chan error
-	Store    store.KeyValueStore
 }
 
 // NewPlugin creates a new Plugin object.
@@ -55,7 +50,6 @@ func NewPlugin(name, version string) (*Plugin, error) {
 // Initialize initializes the plugin.
 func (plugin *Plugin) Initialize(config *PluginConfig) error {
 	plugin.ErrChan = config.ErrChan
-	plugin.Store = config.Store
 
 	return nil
 }

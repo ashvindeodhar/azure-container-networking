@@ -2,12 +2,11 @@
 COREFILES = \
 	$(wildcard common/*.go) \
 	$(wildcard ebtables/*.go) \
-	$(wildcard ipam/*.go) \
 	$(wildcard log/*.go) \
 	$(wildcard netlink/*.go) \
-	$(wildcard network/*.go) \
 	$(wildcard platform/*.go) \
-	$(wildcard store/*.go)
+	$(wildcard store/*.go) \
+	$(wildcard cns/client/*.go)
 
 # Source files for building CNM plugin.
 CNMFILES = \
@@ -35,6 +34,8 @@ CNSFILES = \
 	$(wildcard cns/restserver/*.go) \
 	$(wildcard cns/routes/*.go) \
 	$(wildcard cns/service/*.go) \
+	$(wildcard network/*.go) \
+	$(wildcard ipam/*.go) \
 	$(COREFILES) \
 	$(CNMFILES)
 

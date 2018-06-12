@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/Azure/azure-container-networking/cni"
+	"github.com/Azure/azure-container-networking/cns/client"
 	"github.com/Azure/azure-container-networking/common"
 	"github.com/Azure/azure-container-networking/log"
 	"github.com/Azure/azure-container-networking/network"
@@ -31,8 +32,8 @@ const (
 // NetPlugin represents the CNI network plugin.
 type netPlugin struct {
 	*cni.Plugin
-	nm            network.NetworkManager
 	reportManager *telemetry.ReportManager
+	cnsClient     cnsclient.Client
 }
 
 // NewPlugin creates a new netPlugin object.
@@ -43,17 +44,14 @@ func NewPlugin(config *common.PluginConfig) (*netPlugin, error) {
 		return nil, err
 	}
 
-	// Setup network manager.
-	nm, err := network.NewNetworkManager()
-	if err != nil {
-		return nil, err
-	}
+	config.NetApi = nil
 
-	config.NetApi = nm
+	client := cnsclient.NewClient()
+	// ashvin - pass this client thru config to ipam
 
 	return &netPlugin{
-		Plugin: plugin,
-		nm:     nm,
+		Plugin:    plugin,
+		cnsClient: client,
 	}, nil
 }
 
@@ -75,13 +73,6 @@ func (plugin *netPlugin) Start(config *common.PluginConfig) error {
 	log.Printf("[cni-net] Running on %v", platform.GetOSInfo())
 	common.LogNetworkInterfaces()
 
-	// Initialize network manager.
-	err = plugin.nm.Initialize(config)
-	if err != nil {
-		log.Printf("[cni-net] Failed to initialize network manager, err:%v.", err)
-		return err
-	}
-
 	log.Printf("[cni-net] Plugin started.")
 
 	return nil
@@ -89,7 +80,6 @@ func (plugin *netPlugin) Start(config *common.PluginConfig) error {
 
 // Stops the plugin.
 func (plugin *netPlugin) Stop() {
-	plugin.nm.Uninitialize()
 	plugin.Uninitialize()
 	log.Printf("[cni-net] Plugin stopped.")
 }
@@ -199,14 +189,16 @@ func (plugin *netPlugin) Add(args *cniSkel.CmdArgs) error {
 	networkId := nwCfg.Name
 	endpointId := GetEndpointID(args)
 
-	nwInfo, nwInfoErr := plugin.nm.GetNetworkInfo(networkId)
+	nwInfo, nwInfoErr := plugin.cnsClient.GetNetworkInfo(networkId)
 
 	/* Handle consecutive ADD calls for infrastructure containers.
 	 * This is a temporary work around for issue #57253 of Kubernetes.
 	 * We can delete this if statement once they fix it.
 	 * Issue link: https://github.com/kubernetes/kubernetes/issues/57253
 	 */
-	epInfo, _ = plugin.nm.GetEndpointInfo(networkId, endpointId)
+
+	epInfo, _ = plugin.cnsClient.GetEndpointInfo(networkId, endpointId)
+
 	if epInfo != nil {
 		result, err = handleConsecutiveAdd(args.ContainerID, endpointId, nwInfo, nwCfg)
 		if err != nil {
@@ -258,7 +250,7 @@ func (plugin *netPlugin) Add(args *cniSkel.CmdArgs) error {
 		log.Printf("[cni-net] Found master interface %v.", masterIfName)
 
 		// Add the master as an external interface.
-		err = plugin.nm.AddExternalInterface(masterIfName, subnetPrefix.String())
+		err = plugin.cnsClient.AddExternalInterface(masterIfName, subnetPrefix.String())
 		if err != nil {
 			err = plugin.Errorf("Failed to add external interface: %v", err)
 			return err
@@ -283,12 +275,11 @@ func (plugin *netPlugin) Add(args *cniSkel.CmdArgs) error {
 			Policies: policies,
 		}
 
-		err = plugin.nm.CreateNetwork(&nwInfo)
+		err = plugin.cnsClient.CreateNetwork(&nwInfo)
 		if err != nil {
 			err = plugin.Errorf("Failed to create network: %v", err)
 			return err
 		}
-
 		log.Printf("[cni-net] Created network %v with subnet %v.", networkId, subnetPrefix.String())
 	} else {
 		// Network already exists.
@@ -357,7 +348,7 @@ func (plugin *netPlugin) Add(args *cniSkel.CmdArgs) error {
 
 	// Create the endpoint.
 	log.Printf("[cni-net] Creating endpoint %v.", epInfo.Id)
-	err = plugin.nm.CreateEndpoint(networkId, epInfo)
+	err = plugin.cnsClient.CreateEndpoint(networkId, epInfo)
 	if err != nil {
 		err = plugin.Errorf("Failed to create endpoint: %v", err)
 		return err
@@ -413,14 +404,14 @@ func (plugin *netPlugin) Get(args *cniSkel.CmdArgs) error {
 	endpointId := GetEndpointID(args)
 
 	// Query the network.
-	_, err = plugin.nm.GetNetworkInfo(networkId)
+	_, err = plugin.cnsClient.GetNetworkInfo(networkId)
 	if err != nil {
 		plugin.Errorf("Failed to query network: %v", err)
 		return err
 	}
 
 	// Query the endpoint.
-	epInfo, err = plugin.nm.GetEndpointInfo(networkId, endpointId)
+	epInfo, err = plugin.cnsClient.GetEndpointInfo(networkId, endpointId)
 	if err != nil {
 		plugin.Errorf("Failed to query endpoint: %v", err)
 		return err
@@ -473,29 +464,29 @@ func (plugin *netPlugin) Delete(args *cniSkel.CmdArgs) error {
 	endpointId := GetEndpointID(args)
 
 	// Query the network.
-	nwInfo, err := plugin.nm.GetNetworkInfo(networkId)
+	nwInfo, err := plugin.cnsClient.GetNetworkInfo(networkId)
 	if err != nil {
 		// Log the error but return success if the endpoint being deleted is not found.
-		plugin.Errorf("Failed to query network: %v", err)
-		err = nil
-		return err
+		plugin.Errorf("Failed to query network: %v", err) // ashvind - how is this logging??
+		return nil
 	}
 
 	// Query the endpoint.
-	epInfo, err := plugin.nm.GetEndpointInfo(networkId, endpointId)
+	epInfo, err := plugin.cnsClient.GetEndpointInfo(networkId, endpointId)
 	if err != nil {
 		// Log the error but return success if the endpoint being deleted is not found.
-		plugin.Errorf("Failed to query endpoint: %v", err)
-		err = nil
-		return err
+		plugin.Errorf("Failed to query endpoint: %v", err) // ashvind - how is this logging??
+		return nil
 	}
 
 	// Delete the endpoint.
-	err = plugin.nm.DeleteEndpoint(networkId, endpointId)
+	err = plugin.cnsClient.DeleteEndpoint(networkId, endpointId)
 	if err != nil {
 		err = plugin.Errorf("Failed to delete endpoint: %v", err)
 		return err
 	}
+	// ashvind - see 'ignore unexpected error' while delete - investigate
+	// ashvin - CNI doesn't call nm.DeleteNetwork - why??
 
 	// Call into IPAM plugin to release the endpoint's addresses.
 	nwCfg.Ipam.Subnet = nwInfo.Subnets[0].Prefix.String()

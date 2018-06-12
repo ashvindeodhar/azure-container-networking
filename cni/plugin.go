@@ -10,8 +10,6 @@ import (
 
 	"github.com/Azure/azure-container-networking/common"
 	"github.com/Azure/azure-container-networking/log"
-	"github.com/Azure/azure-container-networking/platform"
-	"github.com/Azure/azure-container-networking/store"
 
 	cniInvoke "github.com/containernetworking/cni/pkg/invoke"
 	cniSkel "github.com/containernetworking/cni/pkg/skel"
@@ -152,41 +150,4 @@ func (plugin *Plugin) Error(err error) *cniTypes.Error {
 // Errorf creates and logs a custom CNI error according to a format specifier.
 func (plugin *Plugin) Errorf(format string, args ...interface{}) *cniTypes.Error {
 	return plugin.Error(fmt.Errorf(format, args...))
-}
-
-// Initialize key-value store
-func (plugin *Plugin) InitializeKeyValueStore(config *common.PluginConfig) error {
-	// Create the key value store.
-	if plugin.Store == nil {
-		var err error
-		plugin.Store, err = store.NewJsonFileStore(platform.CNIRuntimePath + plugin.Name + ".json")
-		if err != nil {
-			log.Printf("[cni] Failed to create store, err:%v.", err)
-			return err
-		}
-	}
-
-	// Acquire store lock.
-	if err := plugin.Store.Lock(true); err != nil {
-		log.Printf("[cni] Timed out on locking store, err:%v.", err)
-		return err
-	}
-
-	config.Store = plugin.Store
-
-	return nil
-}
-
-// Uninitialize key-value store
-func (plugin *Plugin) UninitializeKeyValueStore() error {
-	if plugin.Store != nil {
-		err := plugin.Store.Unlock()
-		if err != nil {
-			log.Printf("[cni] Failed to unlock store, err:%v.", err)
-			return err
-		}
-	}
-	plugin.Store = nil
-
-	return nil
 }

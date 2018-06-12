@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	"github.com/Azure/azure-container-networking/cnm"
+	"github.com/Azure/azure-container-networking/cns/client"
 	"github.com/Azure/azure-container-networking/common"
 	"github.com/Azure/azure-container-networking/ipam"
 	"github.com/Azure/azure-container-networking/log"
@@ -24,7 +25,7 @@ const (
 // IpamPlugin represents a CNM (libnetwork) IPAM plugin.
 type ipamPlugin struct {
 	*cnm.Plugin
-	am ipam.AddressManager
+	cnsClient cnsclient.Client
 }
 
 type IpamPlugin interface {
@@ -39,17 +40,14 @@ func NewPlugin(config *common.PluginConfig) (IpamPlugin, error) {
 		return nil, err
 	}
 
-	// Setup address manager.
-	am, err := ipam.NewAddressManager()
-	if err != nil {
-		return nil, err
-	}
+	client := cnsclient.NewClient()
+	// ashvin - Get this from the config which netPlugin passed
 
-	config.IpamApi = am
+	config.IpamApi = nil // config.IpamApi - is unused - why is this added? Remove?
 
 	return &ipamPlugin{
-		Plugin: plugin,
-		am:     am,
+		Plugin:    plugin,
+		cnsClient: client,
 	}, nil
 }
 
@@ -59,13 +57,6 @@ func (plugin *ipamPlugin) Start(config *common.PluginConfig) error {
 	err := plugin.Initialize(config)
 	if err != nil {
 		log.Printf("[ipam] Failed to initialize base plugin, err:%v.", err)
-		return err
-	}
-
-	// Initialize address manager.
-	err = plugin.am.Initialize(config, plugin.Options)
-	if err != nil {
-		log.Printf("[ipam] Failed to initialize address manager, err:%v.", err)
 		return err
 	}
 
@@ -95,7 +86,6 @@ func (plugin *ipamPlugin) Start(config *common.PluginConfig) error {
 // Stop stops the plugin.
 func (plugin *ipamPlugin) Stop() {
 	plugin.DisableDiscovery()
-	plugin.am.Uninitialize()
 	plugin.Uninitialize()
 	log.Printf("[ipam] Plugin stopped.")
 }
@@ -128,7 +118,7 @@ func (plugin *ipamPlugin) getDefaultAddressSpaces(w http.ResponseWriter, r *http
 
 	log.Request(plugin.Name, &req, nil)
 
-	localId, globalId := plugin.am.GetDefaultAddressSpaces()
+	localId, globalId := plugin.cnsClient.GetDefaultAddressSpaces()
 
 	resp.LocalDefaultAddressSpace = localId
 	resp.GlobalDefaultAddressSpace = globalId
@@ -150,7 +140,7 @@ func (plugin *ipamPlugin) requestPool(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Process request.
-	poolId, subnet, err := plugin.am.RequestPool(req.AddressSpace, req.Pool, req.SubPool, req.Options, req.V6)
+	poolId, subnet, err := plugin.cnsClient.RequestPool(req.AddressSpace, req.Pool, req.SubPool, req.Options, req.V6)
 	if err != nil {
 		plugin.SendErrorResponse(w, err)
 		return
@@ -184,7 +174,7 @@ func (plugin *ipamPlugin) releasePool(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err = plugin.am.ReleasePool(poolId.AsId, poolId.Subnet)
+	err = plugin.cnsClient.ReleasePool(poolId.AsId, poolId.Subnet)
 	if err != nil {
 		plugin.SendErrorResponse(w, err)
 		return
@@ -216,7 +206,7 @@ func (plugin *ipamPlugin) getPoolInfo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	apInfo, err := plugin.am.GetPoolInfo(poolId.AsId, poolId.Subnet)
+	apInfo, err := plugin.cnsClient.GetPoolInfo(poolId.AsId, poolId.Subnet)
 	if err != nil {
 		plugin.SendErrorResponse(w, err)
 		return
@@ -263,7 +253,7 @@ func (plugin *ipamPlugin) requestAddress(w http.ResponseWriter, r *http.Request)
 
 	options[ipam.OptAddressID] = req.Options[ipam.OptAddressID]
 
-	addr, err := plugin.am.RequestAddress(poolId.AsId, poolId.Subnet, req.Address, options)
+	addr, err := plugin.cnsClient.RequestAddress(poolId.AsId, poolId.Subnet, req.Address, options)
 	if err != nil {
 		plugin.SendErrorResponse(w, err)
 		return
@@ -296,7 +286,7 @@ func (plugin *ipamPlugin) releaseAddress(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	err = plugin.am.ReleaseAddress(poolId.AsId, poolId.Subnet, req.Address, req.Options)
+	err = plugin.cnsClient.ReleaseAddress(poolId.AsId, poolId.Subnet, req.Address, req.Options)
 	if err != nil {
 		plugin.SendErrorResponse(w, err)
 		return

@@ -15,7 +15,7 @@ import (
 
 const (
 	// Default CNS server URL.
-	defaultAPIServerURL = "tcp://localhost:10090"
+	DefaultAPIServerURL = "tcp://localhost:10090"
 	genericData         = "com.microsoft.azure.network.generic"
 )
 
@@ -43,7 +43,7 @@ func NewService(name, version string, store store.KeyValueStore) (*Service, erro
 func (service *Service) getAPIServerURL() string {
 	urls, _ := service.GetOption(acn.OptCnsURL).(string)
 	if urls == "" {
-		urls = defaultAPIServerURL
+		urls = DefaultAPIServerURL
 	}
 
 	return urls
@@ -51,7 +51,7 @@ func (service *Service) getAPIServerURL() string {
 
 // Initialize initializes the service and starts the listener.
 func (service *Service) Initialize(config *common.ServiceConfig) error {
-	log.Debugf("[Azure CNS] Going to initialize a service with config: %+v", config)
+	log.Printf("[Azure CNS] Going to initialize a service with config: %+v", config)
 
 	// Initialize the base service.
 	service.Service.Initialize(config)
@@ -63,6 +63,7 @@ func (service *Service) Initialize(config *common.ServiceConfig) error {
 		if err != nil {
 			return err
 		}
+		log.Printf("ashvin: Parsed URL %+v localAddress %+v serverURL %+v", u, u.Host+u.Path, service.getAPIServerURL())
 
 		// Create the listener.
 		listener, err := acn.NewListener(u)
@@ -81,7 +82,7 @@ func (service *Service) Initialize(config *common.ServiceConfig) error {
 
 	service.Listener = config.Listener
 
-	log.Debugf("[Azure CNS] Successfully initialized a service with config: %+v", config)
+	log.Printf("[Azure CNS] Successfully initialized a service with config: %+v", config)
 	return nil
 }
 
