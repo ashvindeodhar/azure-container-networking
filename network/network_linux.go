@@ -56,7 +56,6 @@ func (nm *networkManager) newNetworkImpl(nwInfo *NetworkInfo, extIf *externalInt
 // DeleteNetworkImpl deletes an existing container network.
 func (nm *networkManager) deleteNetworkImpl(nw *network) error {
 	// Disconnect the interface if this was the last network using it.
-	log.Printf("[net] deleteNetwork: numNetworks connected to extIf %v", len(nw.extIf.Networks))
 	if len(nw.extIf.Networks) == 1 {
 		nm.disconnectExternalInterface(nw.extIf)
 	}

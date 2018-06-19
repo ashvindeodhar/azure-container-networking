@@ -9,7 +9,6 @@ type Plugin struct {
 	Version string
 	Options map[string]interface{}
 	ErrChan chan error
-	//cnsClient cnsClient
 }
 
 // Plugin base interface.

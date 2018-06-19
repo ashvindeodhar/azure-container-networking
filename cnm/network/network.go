@@ -31,7 +31,6 @@ type netPlugin struct {
 	*cnm.Plugin
 	scope     string
 	cnsClient cnsclient.Client
-	serveMux  *http.ServeMux
 }
 
 type NetPlugin interface {

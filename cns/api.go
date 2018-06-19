@@ -11,7 +11,7 @@ import (
 // Container Network Service remote API Contract
 const (
 	SetEnvironmentPath          = "/network/environment"
-	CreateNetworkPath           = "/network/create" // this should be changed to dockercreate
+	CreateNetworkPath           = "/network/create"
 	DeleteNetworkPath           = "/network/delete"
 	ReserveIPAddressPath        = "/network/ip/reserve"
 	ReleaseIPAddressPath        = "/network/ip/release"
@@ -20,7 +20,6 @@ const (
 	GetUnhealthyIPAddressesPath = "/network/ipaddresses/unhealthy"
 	GetHealthReportPath         = "/network/health"
 	AddExtIfRequestPath         = "/network/addextif"
-
 	CreateNewNetworkPath        = "/network/manager/nw/create"
 	DeleteNewNetworkPath        = "/network/manager/nw/delete"
 	GetNetworkInfoPath          = "/network/manager/nw/getinfo"
@@ -37,9 +36,8 @@ const (
 	RequestAddressPath          = "/network/ipam/requestaddress"
 	ReleaseAddressPath          = "/network/ipam/releaseaddress"
 	SetPersistStoreUsagePath    = "/network/manager/setpersiststoreusage"
-
-	V1Prefix = "/v0.1"
-	V2Prefix = "/v0.2"
+	V1Prefix                    = "/v0.1"
+	V2Prefix                    = "/v0.2"
 )
 
 // SetEnvironmentRequest describes the Request to set the environment in CNS.
@@ -142,12 +140,6 @@ type GetNetworkInfoResponse struct {
 	NwInfo   *network.NetworkInfo
 }
 
-// CreateEndpointRequest describes request to create endpoint.
-type CreateEndpointRequest struct {
-	NetworkName string
-	EpInfo      *network.EndpointInfo
-}
-
 // CreateNewNetworkRequest describes request to create network.
 type CreateNewNetworkRequest struct {
 	NwInfo *network.NetworkInfo
@@ -162,6 +154,12 @@ type DeleteNewNetworkRequest struct {
 type AddExtIfRequest struct {
 	MasterIfName string
 	SubnetPrefix string
+}
+
+// CreateEndpointRequest describes request to create endpoint.
+type CreateEndpointRequest struct {
+	NetworkName string
+	EpInfo      *network.EndpointInfo
 }
 
 // DeleteEndpointRequest describes request to delete endpoint.
@@ -201,12 +199,12 @@ type DetachEndpointRequest struct {
 	EndpointId  string
 }
 
-// StartSourceRequest describes request to ???.
+// StartSourceRequest describes request to start configuration source.
 type StartSourceRequest struct {
 	Options map[string]interface{}
 }
 
-// RequestPoolRequest describes request to ???.
+// RequestPoolRequest describes request to reserves the address pool.
 type RequestPoolRequest struct {
 	AsID      string
 	PoolID    string
@@ -222,13 +220,13 @@ type RequestPoolResponse struct {
 	Subnet   string
 }
 
-// ReleasePoolRequest describes request to ???.
+// ReleasePoolRequest describes request to release the address pool.
 type ReleasePoolRequest struct {
 	AsID   string
 	PoolID string
 }
 
-// RequestAddressRequest describes request to ???.
+// RequestAddressRequest describes request to reserves a new address from the address pool.
 type RequestAddressRequest struct {
 	AsID    string
 	PoolID  string
@@ -242,7 +240,7 @@ type RequestAddressResponse struct {
 	Address  string
 }
 
-// ReleaseAddressRequest describes request to ???.
+// ReleaseAddressRequest describes request to release the specified address.
 type ReleaseAddressRequest struct {
 	AsID    string
 	PoolID  string
@@ -250,7 +248,7 @@ type ReleaseAddressRequest struct {
 	Options map[string]string
 }
 
-// GetPoolInfoRequest describes request to ???.
+// GetPoolInfoRequest describes request to return information about the given address pool.
 type GetPoolInfoRequest struct {
 	AsID   string
 	PoolID string

@@ -137,7 +137,6 @@ func main() {
 	var config common.ServiceConfig
 	config.Version = version
 	config.Name = name
-	config.PluginName = pluginName
 
 	// Create a channel to receive unhandled errors from CNS.
 	config.ErrChan = make(chan error, 1)
@@ -145,7 +144,6 @@ func main() {
 	// Create the key value store.
 	var err error
 	config.Store, err = store.NewJsonFileStore(platform.CNMRuntimePath + name + ".json")
-
 	if err != nil {
 		fmt.Printf("Failed to create store: %v\n", err)
 		return
@@ -164,21 +162,6 @@ func main() {
 	// Create a channel to receive unhandled errors from the plugins.
 	pluginConfig.ErrChan = make(chan error, 1)
 
-	/*
-		// Create network plugin.
-		netPlugin, err := network.NewPlugin(&pluginConfig)
-		if err != nil {
-			fmt.Printf("Failed to create network plugin, err:%v.\n", err)
-			return
-		}
-
-		// Create IPAM plugin.
-		ipamPlugin, err := ipam.NewPlugin(&pluginConfig)
-		if err != nil {
-			fmt.Printf("Failed to create IPAM plugin, err:%v.\n", err)
-			return
-		}
-	*/
 	err = acn.CreateDirectory(platform.CNMRuntimePath)
 	if err != nil {
 		fmt.Printf("Failed to create File Store directory Error:%v", err.Error())
@@ -217,33 +200,7 @@ func main() {
 			return
 		}
 	}
-	/*
-		// Set plugin options.
-		netPlugin.SetOption(acn.OptAPIServerURL, url)
 
-		ipamPlugin.SetOption(acn.OptEnvironment, environment)
-		ipamPlugin.SetOption(acn.OptAPIServerURL, url)
-		ipamPlugin.SetOption(acn.OptIpamQueryUrl, ipamQueryUrl)
-		ipamPlugin.SetOption(acn.OptIpamQueryInterval, ipamQueryInterval)
-	*/
-	/*
-		if netPlugin != nil {
-			log.Printf("Start netplugin\n")
-			err = netPlugin.Start(&pluginConfig)
-			if err != nil {
-				fmt.Printf("Failed to start network plugin, err:%v.\n", err)
-				return
-			}
-		}
-
-		if ipamPlugin != nil {
-			err = ipamPlugin.Start(&pluginConfig)
-			if err != nil {
-				fmt.Printf("Failed to start IPAM plugin, err:%v.\n", err)
-				return
-			}
-		}
-	*/
 	// Relay these incoming signals to OS signal channel.
 	osSignalChannel := make(chan os.Signal, 1)
 	signal.Notify(osSignalChannel, os.Interrupt, os.Kill, syscall.SIGTERM)
@@ -260,13 +217,4 @@ func main() {
 	if httpRestService != nil {
 		httpRestService.Stop()
 	}
-	/*
-		if netPlugin != nil {
-			netPlugin.Stop()
-		}
-
-		if ipamPlugin != nil {
-			ipamPlugin.Stop()
-		}
-	*/
 }

@@ -51,7 +51,7 @@ func (service *Service) getAPIServerURL() string {
 
 // Initialize initializes the service and starts the listener.
 func (service *Service) Initialize(config *common.ServiceConfig) error {
-	log.Printf("[Azure CNS] Going to initialize a service with config: %+v", config)
+	log.Debugf("[Azure CNS] Going to initialize a service with config: %+v", config)
 
 	// Initialize the base service.
 	service.Service.Initialize(config)
@@ -81,7 +81,7 @@ func (service *Service) Initialize(config *common.ServiceConfig) error {
 
 	service.Listener = config.Listener
 
-	log.Printf("[Azure CNS] Successfully initialized a service with config: %+v", config)
+	log.Debugf("[Azure CNS] Successfully initialized a service with config: %+v", config)
 	return nil
 }
 

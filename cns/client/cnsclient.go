@@ -49,6 +49,7 @@ type Client interface {
 	SetPersistStoreUsage(usePersistentStore bool) error
 }
 
+// NewClient returns cns client that communicates with cns server
 func NewClient() Client {
 	client := &client{
 		serverURL:  "http://localhost:10090",
@@ -58,6 +59,7 @@ func NewClient() Client {
 	return client
 }
 
+// PostCnsRequest makes the HTTP POST requests to cns server
 func (cnsClient *client) PostCnsRequest(payload interface{}, path string, resp interface{}) error {
 	log.Printf("[cns client] PostCnsRequest- %v", path) // TODO: remove this in the end
 	var body bytes.Buffer
@@ -104,6 +106,7 @@ func (cnsClient *client) PostCnsRequest(payload interface{}, path string, resp i
 	return nil
 }
 
+// SetPersistStoreUsage set the flag to use persistent store
 func (cnsClient *client) SetPersistStoreUsage(usePersistentStore bool) error {
 	var err error
 	var resp cns.Response
@@ -127,6 +130,7 @@ func (cnsClient *client) SetPersistStoreUsage(usePersistentStore bool) error {
 	return err
 }
 
+// GetNetworkInfo returns information about the given network.
 func (cnsClient *client) GetNetworkInfo(networkId string) (*network.NetworkInfo, error) {
 	var err error
 	var resp cns.GetNetworkInfoResponse
@@ -153,6 +157,7 @@ func (cnsClient *client) GetNetworkInfo(networkId string) (*network.NetworkInfo,
 	return resp.NwInfo, err
 }
 
+// GetEndpointInfo returns information about the given endpoint.
 func (cnsClient *client) GetEndpointInfo(networkId, endpointId string) (*network.EndpointInfo, error) {
 	var err error
 	var resp cns.GetEndpointInfoResponse
@@ -180,6 +185,7 @@ func (cnsClient *client) GetEndpointInfo(networkId, endpointId string) (*network
 	return resp.EpInfo, err
 }
 
+// AddExternalInterface adds a host interface to the list of available external interfaces.
 func (cnsClient *client) AddExternalInterface(masterIfName, subnetPrefix string) error {
 	var err error
 	var resp cns.Response
@@ -204,6 +210,7 @@ func (cnsClient *client) AddExternalInterface(masterIfName, subnetPrefix string)
 	return err
 }
 
+// CreateNetwork creates a new container network.
 func (cnsClient *client) CreateNetwork(nwInfo *network.NetworkInfo) error {
 	var err error
 	var resp cns.Response
@@ -226,6 +233,7 @@ func (cnsClient *client) CreateNetwork(nwInfo *network.NetworkInfo) error {
 	return err
 }
 
+// DeleteNetwork deletes an existing container network.
 func (cnsClient *client) DeleteNetwork(networkId string) error {
 	var err error
 	var resp cns.Response
@@ -248,6 +256,7 @@ func (cnsClient *client) DeleteNetwork(networkId string) error {
 	return err
 }
 
+// CreateEndpoint creates a new container endpoint.
 func (cnsClient *client) CreateEndpoint(networkId string, epInfo *network.EndpointInfo) error {
 	var err error
 	var resp cns.Response
@@ -272,6 +281,7 @@ func (cnsClient *client) CreateEndpoint(networkId string, epInfo *network.Endpoi
 	return err
 }
 
+// DeleteEndpoint deletes an existing container endpoint.
 func (cnsClient *client) DeleteEndpoint(networkId, endpointId string) error {
 	var err error
 	var resp cns.Response
@@ -296,6 +306,7 @@ func (cnsClient *client) DeleteEndpoint(networkId, endpointId string) error {
 	return err
 }
 
+// AttachEndpoint attaches an endpoint to a sandbox.
 func (cnsClient *client) AttachEndpoint(networkId string, endpointId string, sandboxKey string) (*network.EndpointInfo, error) {
 	var err error
 	var resp cns.AttachEndpointResponse
@@ -324,6 +335,7 @@ func (cnsClient *client) AttachEndpoint(networkId string, endpointId string, san
 	return resp.EpInfo, err
 }
 
+// DetachEndpoint detaches an endpoint from its sandbox.
 func (cnsClient *client) DetachEndpoint(networkId string, endpointId string) error {
 	var err error
 	var resp cns.Response
@@ -348,6 +360,7 @@ func (cnsClient *client) DetachEndpoint(networkId string, endpointId string) err
 	return err
 }
 
+// Starts configuration source.
 func (cnsClient *client) StartSource(options map[string]interface{}) error {
 	var err error
 	var resp cns.Response
@@ -371,6 +384,7 @@ func (cnsClient *client) StartSource(options map[string]interface{}) error {
 	return err
 }
 
+// RequestPool reserves an address pool.
 func (cnsClient *client) RequestPool(asId, poolId, subPoolId string, options map[string]string, v6 bool) (string, string, error) {
 	var err error
 	var resp cns.RequestPoolResponse
@@ -401,6 +415,7 @@ func (cnsClient *client) RequestPool(asId, poolId, subPoolId string, options map
 	return resp.PoolID, resp.Subnet, err
 }
 
+// ReleasePool releases a previously reserved address pool.
 func (cnsClient *client) ReleasePool(asId, poolId string) error {
 	var err error
 	var resp cns.Response
@@ -425,6 +440,7 @@ func (cnsClient *client) ReleasePool(asId, poolId string) error {
 	return err
 }
 
+// RequestAddress reserves a new address from the address pool.
 func (cnsClient *client) RequestAddress(asId, poolId, address string, options map[string]string) (string, error) {
 	var err error
 	var resp cns.RequestAddressResponse
@@ -454,6 +470,7 @@ func (cnsClient *client) RequestAddress(asId, poolId, address string, options ma
 	return resp.Address, err
 }
 
+// ReleaseAddress releases a previously reserved address.
 func (cnsClient *client) ReleaseAddress(asId, poolId, address string, options map[string]string) error {
 	var err error
 	var resp cns.Response
@@ -480,6 +497,7 @@ func (cnsClient *client) ReleaseAddress(asId, poolId, address string, options ma
 	return err
 }
 
+// GetPoolInfo returns information about the given address pool.
 func (cnsClient *client) GetPoolInfo(asId, poolId string) (*ipam.AddressPoolInfo, error) {
 	var err error
 	var resp cns.GetPoolInfoResponse
