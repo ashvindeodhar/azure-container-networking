@@ -47,7 +47,6 @@ func NewPlugin(config *common.PluginConfig) (*netPlugin, error) {
 	config.NetApi = nil
 
 	client := cnsclient.NewClient()
-	// ashvin - pass this client thru config to ipam
 
 	return &netPlugin{
 		Plugin:    plugin,
@@ -65,6 +64,11 @@ func (plugin *netPlugin) Start(config *common.PluginConfig) error {
 	err := plugin.Initialize(config)
 	if err != nil {
 		log.Printf("[cni-net] Failed to initialize base plugin, err:%v.", err)
+		return err
+	}
+
+	if err = plugin.cnsClient.SetPersistStoreUsage(false); err != nil {
+		log.Printf("[cni-net] Failed to SetPersistStoreUsage for cns client, err: %v.", err)
 		return err
 	}
 
@@ -467,7 +471,7 @@ func (plugin *netPlugin) Delete(args *cniSkel.CmdArgs) error {
 	nwInfo, err := plugin.cnsClient.GetNetworkInfo(networkId)
 	if err != nil {
 		// Log the error but return success if the endpoint being deleted is not found.
-		plugin.Errorf("Failed to query network: %v", err) // ashvind - how is this logging??
+		plugin.Errorf("Failed to query network: %v", err)
 		return nil
 	}
 
@@ -475,7 +479,7 @@ func (plugin *netPlugin) Delete(args *cniSkel.CmdArgs) error {
 	epInfo, err := plugin.cnsClient.GetEndpointInfo(networkId, endpointId)
 	if err != nil {
 		// Log the error but return success if the endpoint being deleted is not found.
-		plugin.Errorf("Failed to query endpoint: %v", err) // ashvind - how is this logging??
+		plugin.Errorf("Failed to query endpoint: %v", err)
 		return nil
 	}
 
@@ -485,8 +489,6 @@ func (plugin *netPlugin) Delete(args *cniSkel.CmdArgs) error {
 		err = plugin.Errorf("Failed to delete endpoint: %v", err)
 		return err
 	}
-	// ashvind - see 'ignore unexpected error' while delete - investigate
-	// ashvin - CNI doesn't call nm.DeleteNetwork - why??
 
 	// Call into IPAM plugin to release the endpoint's addresses.
 	nwCfg.Ipam.Subnet = nwInfo.Subnets[0].Prefix.String()

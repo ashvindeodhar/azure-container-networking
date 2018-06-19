@@ -9,6 +9,9 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os/exec"
+	"runtime"
+	"time"
 
 	"github.com/Azure/azure-container-networking/cns"
 	"github.com/Azure/azure-container-networking/ipam"
@@ -16,19 +19,14 @@ import (
 	"github.com/Azure/azure-container-networking/network"
 )
 
-// ashvin - add a tag for each file instead of writing [net] [Azure-CNS] in each comment
-
 // cns client manages the communication between a plugin and cns rest server
 type client struct {
 	serverURL  string
 	httpClient *http.Client
-	//sync.Mutex // ashvind - this is in nm - why do we need this?
-	// ashvin - handle concurrent requests from multiple plugin from the same VMs
 }
 
 // Client API for cns
 type Client interface {
-	// ashvin - reorder these
 	AddExternalInterface(masterIfName, subnetPrefix string) error
 	CreateNetwork(nwInfo *network.NetworkInfo) error
 	DeleteNetwork(networkId string) error
@@ -48,17 +46,12 @@ type Client interface {
 	GetDefaultAddressSpaces() (string, string)
 
 	PostCnsRequest(httpReqPayload interface{}, cnsResourcePath string, cnsResponse interface{}) error
+	SetPersistStoreUsage(usePersistentStore bool) error
 }
-
-// ashvind
-// NewClient creates a new cns client object.
-// make this accept the url thru the command line as cns server can be asked -s to listen onto some port
-// move cnsclient under cns/client
-// cni, cnm should start cns if it's not running
 
 func NewClient() Client {
 	client := &client{
-		serverURL:  "http://localhost:10090", //cns.DefaultAPIServerURL, //"http://localhost:10090",
+		serverURL:  "http://localhost:10090",
 		httpClient: &http.Client{},
 	}
 
@@ -66,14 +59,37 @@ func NewClient() Client {
 }
 
 func (cnsClient *client) PostCnsRequest(payload interface{}, path string, resp interface{}) error {
-
-	log.Printf("[cns client] PostCnsRequest- %v", path) // ashvin - remove this in the end
+	log.Printf("[cns client] PostCnsRequest- %v", path) // TODO: remove this in the end
 	var body bytes.Buffer
+	var err error
+	var res *http.Response
+
 	json.NewEncoder(&body).Encode(payload)
 
-	res, err := cnsClient.httpClient.Post(cnsClient.serverURL+path, "application/json", &body)
+	res, err = cnsClient.httpClient.Post(cnsClient.serverURL+path, "application/json", &body)
+	// TODO: need to check the error for absence of azure-cns process
 	if err != nil {
-		return err
+		log.Printf("[cns client] Starting azure-cns")
+
+		if runtime.GOOS == "linux" {
+			cmd := exec.Command("/opt/azure-cns")
+			err = cmd.Start()
+		} else {
+			cmd := exec.Command("c:\\k\\azure-cns.exe")
+			err = cmd.Start()
+		}
+
+		if err != nil {
+			log.Printf("[cns client] Failed to start azure-cns server")
+			return err
+		}
+
+		time.Sleep(1 * time.Second)
+
+		res, err = cnsClient.httpClient.Post(cnsClient.serverURL+path, "application/json", &body)
+		if err != nil {
+			return err
+		}
 	}
 
 	defer res.Body.Close()
@@ -86,6 +102,29 @@ func (cnsClient *client) PostCnsRequest(payload interface{}, path string, resp i
 		return fmt.Errorf("HTTP POST returned status code %v", res.StatusCode)
 	}
 	return nil
+}
+
+func (cnsClient *client) SetPersistStoreUsage(usePersistentStore bool) error {
+	var err error
+	var resp cns.Response
+
+	payload := &cns.SetPersistStoreUsageRequest{
+		UsePersistStore: usePersistentStore,
+	}
+
+	if err = cnsClient.PostCnsRequest(payload, cns.SetPersistStoreUsagePath, &resp); err != nil {
+		log.Printf("[cns client] PostCnsRequest for SetPersistStoreUsage failed " + err.Error())
+	} else if resp.ReturnCode != 0 {
+		log.Printf("[cns client] SetPersistStoreUsage failed: %v", resp.Message)
+		err = errors.New(resp.Message)
+	}
+
+	// TODO: after debugging remove following print
+	if err == nil {
+		log.Printf("[cns client] SetPersistStoreUsagePath Success!")
+	}
+
+	return err
 }
 
 func (cnsClient *client) GetNetworkInfo(networkId string) (*network.NetworkInfo, error) {
@@ -106,7 +145,7 @@ func (cnsClient *client) GetNetworkInfo(networkId string) (*network.NetworkInfo,
 		err = errors.New(resp.Response.Message)
 	}
 
-	// ashvind - after debugging remove following print
+	// TODO: after debugging remove following print
 	if err == nil {
 		log.Printf("[cns client] GetNetworkInfo Success! %+v", resp.NwInfo)
 	}
@@ -133,7 +172,7 @@ func (cnsClient *client) GetEndpointInfo(networkId, endpointId string) (*network
 		err = errors.New(resp.Response.Message)
 	}
 
-	// ashvind - after debugging remove following print
+	// TODO: after debugging remove following print
 	if err == nil {
 		log.Printf("[cns client] GetEndpointInfo Success! %+v", resp.EpInfo)
 	}
@@ -157,7 +196,7 @@ func (cnsClient *client) AddExternalInterface(masterIfName, subnetPrefix string)
 		err = errors.New(resp.Message)
 	}
 
-	// ashvind - after debugging remove following print
+	// TODO: after debugging remove following print
 	if err == nil {
 		log.Printf("[cns client] AddExternalInterface Success!")
 	}
@@ -179,7 +218,7 @@ func (cnsClient *client) CreateNetwork(nwInfo *network.NetworkInfo) error {
 		err = errors.New(resp.Message)
 	}
 
-	// ashvind - after debugging remove following print
+	// TODO: after debugging remove following print
 	if err == nil {
 		log.Printf("[cns client] CreateNewNetwork Success!")
 	}
@@ -201,7 +240,7 @@ func (cnsClient *client) DeleteNetwork(networkId string) error {
 		err = errors.New(resp.Message)
 	}
 
-	// ashvind - after debugging remove following print
+	// TODO: after debugging remove following print
 	if err == nil {
 		log.Printf("[cns client] DeleteNetwork Success!")
 	}
@@ -225,7 +264,7 @@ func (cnsClient *client) CreateEndpoint(networkId string, epInfo *network.Endpoi
 		err = errors.New(resp.Message)
 	}
 
-	// ashvind - after debugging remove following print
+	// TODO: after debugging remove following print
 	if err == nil {
 		log.Printf("[cns client] CreateEndpoint Success!")
 	}
@@ -249,7 +288,7 @@ func (cnsClient *client) DeleteEndpoint(networkId, endpointId string) error {
 		err = errors.New(resp.Message)
 	}
 
-	// ashvind - after debugging remove following print
+	// TODO: after debugging remove following print
 	if err == nil {
 		log.Printf("[cns client] DeleteEndpoint Success!")
 	}
@@ -277,7 +316,7 @@ func (cnsClient *client) AttachEndpoint(networkId string, endpointId string, san
 		err = errors.New(resp.Response.Message)
 	}
 
-	// ashvind - after debugging remove following print
+	// TODO: after debugging remove following print
 	if err == nil {
 		log.Printf("[cns client] AttachEndpoint Success! %+v", resp.EpInfo)
 	}
@@ -301,7 +340,7 @@ func (cnsClient *client) DetachEndpoint(networkId string, endpointId string) err
 		err = errors.New(resp.Message)
 	}
 
-	// ashvind - after debugging remove following print
+	// TODO: after debugging remove following print
 	if err == nil {
 		log.Printf("[cns client] DetachEndpoint Success!")
 	}
@@ -324,7 +363,7 @@ func (cnsClient *client) StartSource(options map[string]interface{}) error {
 		err = errors.New(resp.Message)
 	}
 
-	// ashvind - after debugging remove following print
+	// TODO: after debugging remove following print
 	if err == nil {
 		log.Printf("[cns client] StartSource Success!")
 	}
@@ -354,7 +393,7 @@ func (cnsClient *client) RequestPool(asId, poolId, subPoolId string, options map
 		err = errors.New(resp.Response.Message)
 	}
 
-	// ashvind - after debugging remove following print
+	// TODO: after debugging remove following print
 	if err == nil {
 		log.Printf("[cns client] RequestPool Success!")
 	}
@@ -378,7 +417,7 @@ func (cnsClient *client) ReleasePool(asId, poolId string) error {
 		err = errors.New(resp.Message)
 	}
 
-	// ashvind - after debugging remove following print
+	// TODO: after debugging remove following print
 	if err == nil {
 		log.Printf("[cns client] ReleasePool Success!")
 	}
@@ -407,7 +446,7 @@ func (cnsClient *client) RequestAddress(asId, poolId, address string, options ma
 		err = errors.New(resp.Response.Message)
 	}
 
-	// ashvind - after debugging remove following print
+	// TODO: after debugging remove following print
 	if err == nil {
 		log.Printf("[cns client] RequestAddress Success!")
 	}
@@ -433,7 +472,7 @@ func (cnsClient *client) ReleaseAddress(asId, poolId, address string, options ma
 		err = errors.New(resp.Message)
 	}
 
-	// ashvind - after debugging remove following print
+	// TODO: after debugging remove following print
 	if err == nil {
 		log.Printf("[cns client] ReleaseAddress Success!")
 	}
@@ -460,7 +499,7 @@ func (cnsClient *client) GetPoolInfo(asId, poolId string) (*ipam.AddressPoolInfo
 		err = errors.New(resp.Response.Message)
 	}
 
-	// ashvind - after debugging remove following print
+	// TODO: after debugging remove following print
 	if err == nil {
 		log.Printf("[cns client] GetPoolInfo Success! %+v", resp.ApInfo)
 	}
@@ -473,7 +512,6 @@ func (cnsClient *client) GetDefaultAddressSpaces() (string, string) {
 	var err error
 	var resp cns.GetDefaultAddressSpacesResponse
 
-	// ashvin - passing payload as null - does this work?
 	if err = cnsClient.PostCnsRequest(nil, cns.GetDefaultAddressSpacesPath, &resp); err != nil {
 		log.Printf("[cns client] PostCnsRequest for GetDefaultAddressSpaces failed " + err.Error())
 		return "", ""
@@ -484,7 +522,7 @@ func (cnsClient *client) GetDefaultAddressSpaces() (string, string) {
 		err = errors.New(resp.Response.Message)
 	}
 
-	// ashvind - after debugging remove following print
+	// TODO: after debugging remove following print
 	if err == nil {
 		log.Printf("[cns client] GetDefaultAddressSpaces Success! %v %v",
 			resp.LocalDefaultAddressSpace, resp.GlobalDefaultAddressSpace)

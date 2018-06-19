@@ -41,9 +41,8 @@ func NewPlugin(config *common.PluginConfig) (IpamPlugin, error) {
 	}
 
 	client := cnsclient.NewClient()
-	// ashvin - Get this from the config which netPlugin passed
 
-	config.IpamApi = nil // config.IpamApi - is unused - why is this added? Remove?
+	config.IpamApi = nil
 
 	return &ipamPlugin{
 		Plugin:    plugin,
@@ -75,6 +74,11 @@ func (plugin *ipamPlugin) Start(config *common.PluginConfig) error {
 	err = plugin.EnableDiscovery()
 	if err != nil {
 		log.Printf("[ipam] Failed to enable discovery: %v.", err)
+		return err
+	}
+
+	if err = plugin.cnsClient.SetPersistStoreUsage(true); err != nil {
+		log.Printf("[ipam] Failed to SetPersistStoreUsage for cns client, err: %v.", err)
 		return err
 	}
 

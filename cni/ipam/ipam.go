@@ -43,7 +43,7 @@ func NewPlugin(config *common.PluginConfig) (*ipamPlugin, error) {
 		return nil, err
 	}
 
-	client := cnsclient.NewClient() //ashvind - this is a new instance - can you use the same as netplugin?
+	client := cnsclient.NewClient()
 
 	// Create IPAM plugin.
 	ipamPlg := &ipamPlugin{
@@ -62,6 +62,11 @@ func (plugin *ipamPlugin) Start(config *common.PluginConfig) error {
 	err := plugin.Initialize(config)
 	if err != nil {
 		log.Printf("[cni-ipam] Failed to initialize base plugin, err:%v.", err)
+		return err
+	}
+
+	if err = plugin.cnsClient.SetPersistStoreUsage(false); err != nil {
+		log.Printf("[cni-ipam] Failed to SetPersistStoreUsage for cns client, err: %v.", err)
 		return err
 	}
 
@@ -104,7 +109,6 @@ func (plugin *ipamPlugin) Configure(stdinData []byte) (*cni.NetworkConfig, error
 		plugin.SetOption(common.OptIpamQueryInterval, i)
 	}
 
-	// ashvin - follow this style everywhere in the code you change
 	if err = plugin.cnsClient.StartSource(plugin.Options); err != nil {
 		return nil, err
 	}

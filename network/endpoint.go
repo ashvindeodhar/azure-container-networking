@@ -154,6 +154,7 @@ func (ep *endpoint) getInfo() *EndpointInfo {
 		SandboxKey:  ep.SandboxKey,
 		IfIndex:     0, // Azure CNI supports only one interface
 		DNS:         ep.DNS,
+		IfName:      ep.IfName,
 	}
 
 	for _, route := range ep.Routes {

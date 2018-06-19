@@ -7,7 +7,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Azure/azure-container-networking/common"
 	"github.com/Azure/azure-container-networking/log"
 	"github.com/Azure/azure-container-networking/platform"
 	"github.com/Azure/azure-container-networking/store"
@@ -20,16 +19,16 @@ const (
 
 // NetworkManager manages the set of container networking resources.
 type networkManager struct {
-	Version            string
 	TimeStamp          time.Time
 	ExternalInterfaces map[string]*externalInterface
 	store              store.KeyValueStore
+	initialized        bool
 	sync.Mutex
 }
 
 // NetworkManager API.
 type NetworkManager interface {
-	Initialize(config *common.PluginConfig) error
+	Initialize(store store.KeyValueStore) error
 	Uninitialize()
 
 	AddExternalInterface(ifName string, subnet string) error
@@ -43,8 +42,6 @@ type NetworkManager interface {
 	GetEndpointInfo(networkId string, endpointId string) (*EndpointInfo, error)
 	AttachEndpoint(networkId string, endpointId string, sandboxKey string) (*EndpointInfo, error)
 	DetachEndpoint(networkId string, endpointId string) error
-
-	Initialize2() error
 }
 
 // Creates a new network manager.
@@ -57,54 +54,20 @@ func NewNetworkManager() (NetworkManager, error) {
 }
 
 // Initialize configures network manager.
-func (nm *networkManager) Initialize(config *common.PluginConfig) error {
-	nm.Version = config.Version
-
-	// Restore persisted state.
-	err := nm.restore()
-	return err
-}
-
-// Initialize configures network manager.
-func (nm *networkManager) Initialize2() error {
-	//ashvin - remove the nm.Version - what's the need?
-	log.Printf("ashvind - initialize2 path :%v.", platform.CNIRuntimePath+"azure-vnet.json")
-	// Create the key value store.
-	if nm.store == nil { // ashvind - due to uninit setting to null - does this always create a new file?
-		var err error
-		nm.store, err = store.NewJsonFileStore(platform.CNIRuntimePath + "azure-vnet.json")
+func (nm *networkManager) Initialize(store store.KeyValueStore) error {
+	if nm.initialized == false {
+		nm.store = store
+		err := nm.restore()
 		if err != nil {
-			log.Printf("ashvind [cni] Failed to create store, err:%v.", err)
 			return err
 		}
+		nm.initialized = true
 	}
-
-	if err := nm.store.Lock(true); err != nil {
-		log.Printf("[net] Timed out on locking store, err:%v.", err)
-		return err
-	}
-
-	// Restore persisted state.
-	err := nm.restore()
-	return err
+	return nil
 }
 
 // Uninitialize cleans up network manager.
 func (nm *networkManager) Uninitialize() {
-	log.Printf("ashvind nm unintialize")
-	nm.Lock()
-	defer nm.Unlock()
-
-	nm.save()
-
-	if nm.store != nil {
-		if err := nm.store.Unlock(); err != nil {
-			log.Printf(" ashvind nm Failed to unlock")
-		}
-	}
-
-	//plugin.Store = nil
-
 }
 
 // Restore reads network manager state from persistent store.
@@ -181,6 +144,9 @@ func (nm *networkManager) save() error {
 
 	// Update time stamp.
 	nm.TimeStamp = time.Now()
+
+	// TODO: defer Release file level lock
+	// TODO: Get the file level lock
 
 	err := nm.store.Write(storeKey, nm)
 	if err == nil {

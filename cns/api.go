@@ -30,13 +30,13 @@ const (
 	DetachEndpointPath          = "/network/manager/endpoint/detach"
 	GetEndpointInfoPath         = "/network/manager/endpoint/getinfo"
 	StartSourcePath             = "/network/ipam/startsource"
-	StopSourcePath              = "/network/ipam/stopsource"
 	GetDefaultAddressSpacesPath = "/network/ipam/getdefaultaddressspaces"
 	RequestPoolPath             = "/network/ipam/requestpool"
 	ReleasePoolPath             = "/network/ipam/releasepool"
 	GetPoolInfoPath             = "/network/ipam/getpoolinfo"
 	RequestAddressPath          = "/network/ipam/requestaddress"
 	ReleaseAddressPath          = "/network/ipam/releaseaddress"
+	SetPersistStoreUsagePath    = "/network/manager/setpersiststoreusage"
 
 	V1Prefix = "/v0.1"
 	V2Prefix = "/v0.2"
@@ -267,4 +267,9 @@ type GetDefaultAddressSpacesResponse struct {
 	Response                  Response
 	LocalDefaultAddressSpace  string
 	GlobalDefaultAddressSpace string
+}
+
+// SetPersistStoreUsageRequest describes request to use persistent or non-persistent store.
+type SetPersistStoreUsageRequest struct {
+	UsePersistStore bool
 }

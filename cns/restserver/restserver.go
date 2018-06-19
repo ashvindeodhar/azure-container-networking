@@ -127,7 +127,6 @@ func NewHTTPRestService(config *common.ServiceConfig) (HTTPService, error) {
 
 // Start starts the CNS listener.
 func (service *httpRestService) Start(config *common.ServiceConfig) error {
-
 	err := service.Initialize(config)
 	if err != nil {
 		log.Printf("[Azure CNS]  Failed to initialize base service, err:%v.", err)
@@ -141,18 +140,6 @@ func (service *httpRestService) Start(config *common.ServiceConfig) error {
 
 	if err = service.restoreNetworkState(); err != nil {
 		log.Printf("[Azure CNS]  Failed to restore network state, err:%v.", err)
-		return err
-	}
-
-	// Initialize network manager
-	if err = service.nm.Initialize2(); err != nil {
-		log.Printf("ashvind - NM init2 fails")
-		return err
-	}
-
-	// Initialize address manager.
-	if err = service.am.Initialize2(service.nm, service.Options); err != nil {
-		log.Printf("ashvind - AM init2 fails :%v", err)
 		return err
 	}
 
@@ -181,45 +168,13 @@ func (service *httpRestService) Start(config *common.ServiceConfig) error {
 	listener.AddHandler(cns.GetEndpointInfoPath, service.getEndpointInfo)
 	listener.AddHandler(cns.AddExtIfRequestPath, service.addExtIf)
 	listener.AddHandler(cns.StartSourcePath, service.startsource)
-	listener.AddHandler(cns.StopSourcePath, service.stopsource)
 	listener.AddHandler(cns.GetDefaultAddressSpacesPath, service.getDefaultAddressSpaces)
 	listener.AddHandler(cns.RequestPoolPath, service.requestPool)
 	listener.AddHandler(cns.ReleasePoolPath, service.releasePool)
 	listener.AddHandler(cns.GetPoolInfoPath, service.getPoolInfo)
 	listener.AddHandler(cns.RequestAddressPath, service.requestAddress)
 	listener.AddHandler(cns.ReleaseAddressPath, service.releaseAddress)
-
-	// ashvin - remove these
-	// handlers for v0.2
-	listener.AddHandler(cns.V2Prefix+cns.SetEnvironmentPath, service.setEnvironment)
-	listener.AddHandler(cns.V2Prefix+cns.CreateNetworkPath, service.createNetwork)
-	listener.AddHandler(cns.V2Prefix+cns.DeleteNetworkPath, service.deleteNetwork)
-	listener.AddHandler(cns.V2Prefix+cns.ReserveIPAddressPath, service.reserveIPAddress)
-	listener.AddHandler(cns.V2Prefix+cns.ReleaseIPAddressPath, service.releaseIPAddress)
-	listener.AddHandler(cns.V2Prefix+cns.GetHostLocalIPPath, service.getHostLocalIP)
-	listener.AddHandler(cns.V2Prefix+cns.GetIPAddressUtilizationPath, service.getIPAddressUtilization)
-	listener.AddHandler(cns.V2Prefix+cns.GetUnhealthyIPAddressesPath, service.getUnhealthyIPAddresses)
-	listener.AddHandler(cns.V2Prefix+cns.CreateOrUpdateNetworkContainer, service.createOrUpdateNetworkContainer)
-	listener.AddHandler(cns.V2Prefix+cns.DeleteNetworkContainer, service.deleteNetworkContainer)
-	listener.AddHandler(cns.V2Prefix+cns.GetNetworkContainerStatus, service.getNetworkContainerStatus)
-	listener.AddHandler(cns.V2Prefix+cns.GetInterfaceForContainer, service.getInterfaceForContainer)
-	listener.AddHandler(cns.V2Prefix+cns.GetNetworkInfoPath, service.getNetworkInfo)
-	listener.AddHandler(cns.V2Prefix+cns.CreateNewNetworkPath, service.createNewNetwork)
-	listener.AddHandler(cns.V2Prefix+cns.DeleteNewNetworkPath, service.deleteNewNetwork)
-	listener.AddHandler(cns.V2Prefix+cns.CreateEndpointPath, service.createEndpoint)
-	listener.AddHandler(cns.V2Prefix+cns.DeleteEndpointPath, service.deleteEndpoint)
-	listener.AddHandler(cns.V2Prefix+cns.AttachEndpointPath, service.attachEndpoint)
-	listener.AddHandler(cns.V2Prefix+cns.DetachEndpointPath, service.detachEndpoint)
-	listener.AddHandler(cns.V2Prefix+cns.GetEndpointInfoPath, service.getEndpointInfo)
-	listener.AddHandler(cns.V2Prefix+cns.AddExtIfRequestPath, service.addExtIf)
-	listener.AddHandler(cns.V2Prefix+cns.StartSourcePath, service.startsource)
-	listener.AddHandler(cns.V2Prefix+cns.StopSourcePath, service.stopsource)
-	listener.AddHandler(cns.V2Prefix+cns.GetDefaultAddressSpacesPath, service.getDefaultAddressSpaces)
-	listener.AddHandler(cns.V2Prefix+cns.RequestPoolPath, service.requestPool)
-	listener.AddHandler(cns.V2Prefix+cns.ReleasePoolPath, service.releasePool)
-	listener.AddHandler(cns.V2Prefix+cns.GetPoolInfoPath, service.getPoolInfo)
-	listener.AddHandler(cns.V2Prefix+cns.RequestAddressPath, service.requestAddress)
-	listener.AddHandler(cns.V2Prefix+cns.ReleaseAddressPath, service.releaseAddress)
+	listener.AddHandler(cns.SetPersistStoreUsagePath, service.setPersistStoreUsage)
 
 	log.Printf("[Azure CNS]  Listening.")
 
@@ -228,9 +183,9 @@ func (service *httpRestService) Start(config *common.ServiceConfig) error {
 
 // Stop stops the CNS.
 func (service *httpRestService) Stop() {
-	service.Uninitialize()
-	service.nm.Uninitialize()
 	service.am.Uninitialize()
+	service.nm.Uninitialize()
+	service.Uninitialize()
 	log.Printf("[Azure CNS]  Service stopped.")
 }
 
@@ -261,7 +216,7 @@ func (service *httpRestService) setEnvironment(w http.ResponseWriter, r *http.Re
 	log.Response(service.Name, resp, err)
 }
 
-// Handle getNetworkInfo requests
+// Handle getNetworkInfo requests from cns client
 func (service *httpRestService) getNetworkInfo(w http.ResponseWriter, r *http.Request) {
 	returnCode := Success
 	returnMessage := "Success"
@@ -279,12 +234,12 @@ func (service *httpRestService) getNetworkInfo(w http.ResponseWriter, r *http.Re
 	case "POST":
 		nwInfo, err = service.nm.GetNetworkInfo(req.NetworkName)
 		if err != nil {
-			returnCode = InvalidParameter
+			returnCode = UnexpectedError
 			returnMessage = err.Error()
 		}
 	default:
 		returnCode = InvalidParameter
-		returnMessage = "CNS service did not receive a POST for getNetworkInfo"
+		returnMessage = "CNS service did not receive a POST for GetNetworkInfo"
 	}
 
 	resp := cns.Response{
@@ -295,10 +250,9 @@ func (service *httpRestService) getNetworkInfo(w http.ResponseWriter, r *http.Re
 	nwInfoResp := &cns.GetNetworkInfoResponse{Response: resp, NwInfo: nwInfo}
 	err = service.Listener.Encode(w, &nwInfoResp)
 	log.Response(service.Name, nwInfoResp, err)
-	//ashvin - Do we need to always log req and resp? It makes the azure-cns chatty. We can log only errors?
 }
 
-// Handle addExtIf requests
+// Handle addExtIf requests from cns client
 func (service *httpRestService) addExtIf(w http.ResponseWriter, r *http.Request) {
 	returnCode := Success
 	returnMessage := "Success"
@@ -319,7 +273,7 @@ func (service *httpRestService) addExtIf(w http.ResponseWriter, r *http.Request)
 		}
 	default:
 		returnCode = InvalidParameter
-		returnMessage = "CNS service did not receive a POST for addExtIf"
+		returnMessage = "CNS service did not receive a POST for AddExtIf"
 	}
 
 	resp := cns.Response{
@@ -328,10 +282,10 @@ func (service *httpRestService) addExtIf(w http.ResponseWriter, r *http.Request)
 	}
 
 	err = service.Listener.Encode(w, &resp)
-	log.Response(service.Name, resp, err) // ashvind - something like this can be used for 'tag' like cni, cnm, net, cni-net
+	log.Response(service.Name, resp, err)
 }
 
-// Handles createNewNetwork requests.
+// Handles createNewNetwork requests from cns client
 func (service *httpRestService) createNewNetwork(w http.ResponseWriter, r *http.Request) {
 	returnCode := Success
 	returnMessage := "Success"
@@ -352,7 +306,7 @@ func (service *httpRestService) createNewNetwork(w http.ResponseWriter, r *http.
 		}
 	default:
 		returnCode = InvalidParameter
-		returnMessage = "CNS service did not receive a POST for createNetwork"
+		returnMessage = "CNS service did not receive a POST for CreateNetwork"
 	}
 
 	resp := cns.Response{
@@ -364,7 +318,7 @@ func (service *httpRestService) createNewNetwork(w http.ResponseWriter, r *http.
 	log.Response(service.Name, resp, err)
 }
 
-// Handles deleteNewNetwork requests.
+// Handles deleteNewNetwork requests from cns client
 func (service *httpRestService) deleteNewNetwork(w http.ResponseWriter, r *http.Request) {
 	returnCode := Success
 	returnMessage := "Success"
@@ -397,7 +351,7 @@ func (service *httpRestService) deleteNewNetwork(w http.ResponseWriter, r *http.
 	log.Response(service.Name, resp, err)
 }
 
-// Handles createEndpoint requests.
+// Handles createEndpoint requests from cns client
 func (service *httpRestService) createEndpoint(w http.ResponseWriter, r *http.Request) {
 	returnCode := Success
 	returnMessage := "Success"
@@ -418,7 +372,7 @@ func (service *httpRestService) createEndpoint(w http.ResponseWriter, r *http.Re
 		}
 	default:
 		returnCode = InvalidParameter
-		returnMessage = "CNS service did not receive a POST for createEndpoint"
+		returnMessage = "CNS service did not receive a POST for CreateEndpoint"
 	}
 
 	resp := cns.Response{
@@ -430,7 +384,7 @@ func (service *httpRestService) createEndpoint(w http.ResponseWriter, r *http.Re
 	log.Response(service.Name, resp, err)
 }
 
-// Handles deleteEndpoint requests.
+// Handles deleteEndpoint requests from cns client
 func (service *httpRestService) deleteEndpoint(w http.ResponseWriter, r *http.Request) {
 	returnCode := Success
 	returnMessage := "Success"
@@ -451,7 +405,7 @@ func (service *httpRestService) deleteEndpoint(w http.ResponseWriter, r *http.Re
 		}
 	default:
 		returnCode = InvalidParameter
-		returnMessage = "CNS service did not receive a POST for deleteEndpoint"
+		returnMessage = "CNS service did not receive a POST for DeleteEndpoint"
 	}
 
 	resp := cns.Response{
@@ -463,7 +417,7 @@ func (service *httpRestService) deleteEndpoint(w http.ResponseWriter, r *http.Re
 	log.Response(service.Name, resp, err)
 }
 
-// Handles attachEndpoint requests.
+// Handles attachEndpoint requests from cns client
 func (service *httpRestService) attachEndpoint(w http.ResponseWriter, r *http.Request) {
 	returnCode := Success
 	returnMessage := "Success"
@@ -486,7 +440,7 @@ func (service *httpRestService) attachEndpoint(w http.ResponseWriter, r *http.Re
 		}
 	default:
 		returnCode = InvalidParameter
-		returnMessage = "CNS service did not receive a POST for attachEndpoint"
+		returnMessage = "CNS service did not receive a POST for AttachEndpoint"
 	}
 
 	resp := cns.Response{
@@ -499,7 +453,7 @@ func (service *httpRestService) attachEndpoint(w http.ResponseWriter, r *http.Re
 	log.Response(service.Name, epInfoResp, err)
 }
 
-// Handles detachEndpoint requests.
+// Handles detachEndpoint requests from cns client
 func (service *httpRestService) detachEndpoint(w http.ResponseWriter, r *http.Request) {
 	returnCode := Success
 	returnMessage := "Success"
@@ -532,7 +486,7 @@ func (service *httpRestService) detachEndpoint(w http.ResponseWriter, r *http.Re
 	log.Response(service.Name, resp, err)
 }
 
-// Handles getEndpointInfo requests.
+// Handles getEndpointInfo requests from cns client
 func (service *httpRestService) getEndpointInfo(w http.ResponseWriter, r *http.Request) {
 	returnCode := Success
 	returnMessage := "Success"
@@ -568,7 +522,7 @@ func (service *httpRestService) getEndpointInfo(w http.ResponseWriter, r *http.R
 	log.Response(service.Name, epInfoResp, err)
 }
 
-// Handles startsource requests.
+// Handles startsource requests from cns client
 func (service *httpRestService) startsource(w http.ResponseWriter, r *http.Request) {
 	returnCode := Success
 	returnMessage := "Success"
@@ -601,21 +555,13 @@ func (service *httpRestService) startsource(w http.ResponseWriter, r *http.Reque
 	log.Response(service.Name, resp, err)
 }
 
-// Handles stopsource requests.
-func (service *httpRestService) stopsource(w http.ResponseWriter, r *http.Request) {
-}
-
-// Handles getDefaultAddressSpaces requests.
+// Handles getDefaultAddressSpaces requests from cns client
 func (service *httpRestService) getDefaultAddressSpaces(w http.ResponseWriter, r *http.Request) {
 	var err error
 	returnCode := Success
 	returnMessage := "Success"
-	//var req cns.GetDe
 	var localId string
 	var globalId string
-
-	//err := service.Listener.Decode(w, r, &req)
-	//log.Request(service.Name, &req, err)
 
 	if err != nil {
 		return
@@ -648,7 +594,7 @@ func (service *httpRestService) getDefaultAddressSpaces(w http.ResponseWriter, r
 	log.Response(service.Name, respGetDefaultAddressSpaces, err)
 }
 
-// Handles requestPool requests.
+// Handles requestPool requests from cns client
 func (service *httpRestService) requestPool(w http.ResponseWriter, r *http.Request) {
 	returnCode := Success
 	returnMessage := "Success"
@@ -685,7 +631,7 @@ func (service *httpRestService) requestPool(w http.ResponseWriter, r *http.Reque
 	log.Response(service.Name, respRequestPool, err)
 }
 
-// Handles releasePool requests.
+// Handles releasePool requests from cns client
 func (service *httpRestService) releasePool(w http.ResponseWriter, r *http.Request) {
 	returnCode := Success
 	returnMessage := "Success"
@@ -718,7 +664,7 @@ func (service *httpRestService) releasePool(w http.ResponseWriter, r *http.Reque
 	log.Response(service.Name, resp, err)
 }
 
-// Handles getPoolInfo requests.
+// Handles getPoolInfo requests from cns client
 func (service *httpRestService) getPoolInfo(w http.ResponseWriter, r *http.Request) {
 	returnCode := Success
 	returnMessage := "Success"
@@ -754,7 +700,7 @@ func (service *httpRestService) getPoolInfo(w http.ResponseWriter, r *http.Reque
 	log.Response(service.Name, respGetPoolInfo, err)
 }
 
-// Handles requestAddress requests.
+// Handles requestAddress requests from cns client
 func (service *httpRestService) requestAddress(w http.ResponseWriter, r *http.Request) {
 	returnCode := Success
 	returnMessage := "Success"
@@ -790,7 +736,7 @@ func (service *httpRestService) requestAddress(w http.ResponseWriter, r *http.Re
 	log.Response(service.Name, respRequestAddress, err)
 }
 
-// Handles releaseAddress requests.
+// Handles releaseAddress requests from cns client
 func (service *httpRestService) releaseAddress(w http.ResponseWriter, r *http.Request) {
 	returnCode := Success
 	returnMessage := "Success"
@@ -812,6 +758,60 @@ func (service *httpRestService) releaseAddress(w http.ResponseWriter, r *http.Re
 	default:
 		returnCode = InvalidParameter
 		returnMessage = "CNS service did not receive a POST for ReleaseAddress"
+	}
+
+	resp := cns.Response{
+		ReturnCode: returnCode,
+		Message:    returnMessage,
+	}
+
+	err = service.Listener.Encode(w, &resp)
+	log.Response(service.Name, resp, err)
+}
+
+// Handles setPersistStoreUsage call from cns client
+func (service *httpRestService) setPersistStoreUsage(w http.ResponseWriter, r *http.Request) {
+	returnCode := Success
+	returnMessage := "Success"
+	var req cns.SetPersistStoreUsageRequest
+
+	err := service.Listener.Decode(w, r, &req)
+	log.Request(service.Name, &req, err)
+
+	if err != nil {
+		return
+	}
+
+	switch r.Method {
+	case "POST":
+		// Create a key-value stores for plugin specific data.
+		// one store in persistent that allows restore after reboot
+		// the other store is non-persistent and cannot be restored after reboot
+		var kvs store.KeyValueStore
+		var storePath string
+		if req.UsePersistStore == true {
+			storePath = fmt.Sprintf("%vazure-vnet.json", platform.CNMRuntimePath)
+		} else {
+			storePath = fmt.Sprintf("%vazure-vnet.json", platform.CNIRuntimePath)
+		}
+
+		kvs, _ = store.NewJsonFileStore(storePath)
+		log.Printf("[Azure CNS]  Creating key-value store : %v", storePath)
+
+		// Initialize network manager
+		if err = service.nm.Initialize(kvs); err != nil {
+			log.Printf("[Azure CNS]  Failed to initialize network manager, err:%v.", err)
+			returnCode = UnexpectedError
+			returnMessage = err.Error()
+		} else if err = service.am.Initialize(service.nm, service.Options, kvs); err != nil {
+			// Initialize address manager.
+			log.Printf("[Azure CNS]  Failed to initialize IP address manager, err:%v.", err)
+			returnCode = UnexpectedError
+			returnMessage = err.Error()
+		}
+	default:
+		returnCode = InvalidParameter
+		returnMessage = "CNS service did not receive a POST for SetPersistStoreUsage"
 	}
 
 	resp := cns.Response{

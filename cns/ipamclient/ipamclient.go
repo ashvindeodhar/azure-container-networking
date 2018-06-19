@@ -31,7 +31,7 @@ func NewIpamClient(url string) (*IpamClient, error) {
 // GetAddressSpace request to get address space ID.
 func (ic *IpamClient) GetAddressSpace() (string, error) {
 	log.Printf("[Azure CNS] GetAddressSpace Request")
-//ashvind
+
 	client, err := getClient(ic.connectionURL)
 	if err != nil {
 		return "", err

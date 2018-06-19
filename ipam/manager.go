@@ -20,18 +20,18 @@ const (
 
 // AddressManager manages the set of address spaces and pools allocated to containers.
 type addressManager struct {
-	Version    string
-	TimeStamp  time.Time
-	AddrSpaces map[string]*addressSpace `json:"AddressSpaces"`
-	store      store.KeyValueStore
-	source     addressConfigSource
-	netApi     common.NetApi
+	TimeStamp   time.Time
+	AddrSpaces  map[string]*addressSpace `json:"AddressSpaces"`
+	store       store.KeyValueStore
+	source      addressConfigSource
+	netApi      common.NetApi
+	initialized bool
 	sync.Mutex
 }
 
 // AddressManager API.
 type AddressManager interface {
-	Initialize(config *common.PluginConfig, options map[string]interface{}) error
+	Initialize(netApI common.NetApi, options map[string]interface{}, store store.KeyValueStore) error
 	Uninitialize()
 
 	StartSource(options map[string]interface{}) error
@@ -45,8 +45,6 @@ type AddressManager interface {
 
 	RequestAddress(asId, poolId, address string, options map[string]string) (string, error)
 	ReleaseAddress(asId, poolId, address string, options map[string]string) error
-
-	Initialize2(netApi common.NetApi, options map[string]interface{}) error
 }
 
 // AddressConfigSource configures the address pools managed by AddressManager.
@@ -72,49 +70,27 @@ func NewAddressManager() (AddressManager, error) {
 }
 
 // Initialize configures address manager.
+func (am *addressManager) Initialize(netAPI common.NetApi, options map[string]interface{}, store store.KeyValueStore) error {
+	if am.initialized == false {
+		am.netApi = netAPI
+		am.store = store
 
-func (am *addressManager) Initialize(config *common.PluginConfig, options map[string]interface{}) error {
-	am.Version = config.Version
-	am.netApi = config.NetApi
+		// Restore persisted state.
+		err := am.restore()
+		if err != nil {
+			return err
+		}
 
-	// ashvin - which store is this? what's the use of this store in case of CNI ? add logs without your changes
-	// Restore persisted state.
-	err := am.restore()
-	if err != nil {
-		return err
+		// Start source.
+		err = am.StartSource(options)
+		if err != nil {
+			log.Printf("[ipam] Failed to initialize")
+			return err
+		}
+		am.initialized = true
 	}
 
-	log.Printf("ashvinnn - ipam initialize %+v", options)
-
-	// Start source.
-	err = am.StartSource(options)
-
-	return err
-}
-
-// Initialize configures address manager.
-func (am *addressManager) Initialize2(netApi common.NetApi, options map[string]interface{}) error {
-	// ashvin - there shouldn't be a version for am, nm. It sticks to the cns version
-	//am.Version = config.Version
-
-	am.netApi = netApi
-
-	// Restore persisted state.
-	err := am.restore()
-	if err != nil {
-		return err
-	}
-
-	// Start source.
-	//var options map[string]interface{}
-	log.Printf("ashvind Init2 %+v", options)
-	err = am.StartSource(options)
-	if err != nil {
-		log.Printf("ashvind Init2 FAILED")
-	} else {
-		log.Printf("ashvind Init2 SUCCESS")
-	}
-	return err
+	return nil
 }
 
 // Uninitialize cleans up address manager.
@@ -197,6 +173,9 @@ func (am *addressManager) save() error {
 	// Update time stamp.
 	am.TimeStamp = time.Now()
 
+	// TODO: defer Release file level lock
+	// TODO: Get the file level lock
+
 	err := am.store.Write(storeKey, am)
 	if err == nil {
 		log.Printf("[ipam] Save succeeded.\n")
@@ -232,8 +211,6 @@ func (am *addressManager) StartSource(options map[string]interface{}) error {
 	if am.source != nil {
 		log.Printf("[ipam] Starting source %v.", environment)
 		err = am.source.start(am)
-	} else {
-		log.Printf("ashvind am.source is NIL.. %v", environment)
 	}
 
 	if err != nil || am.source == nil {
@@ -253,7 +230,6 @@ func (am *addressManager) StopSource() {
 
 // Signals configuration source to refresh.
 func (am *addressManager) refreshSource() {
-	log.Printf("ashvind - refresh.............")
 	if am.source != nil {
 		log.Printf("[ipam] Refreshing address source.")
 		err := am.source.refresh()

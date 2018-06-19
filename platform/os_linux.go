@@ -15,7 +15,7 @@ const (
 	// CNMRuntimePath is the path where CNM state files are stored.
 	CNMRuntimePath = "/var/lib/azure-network/"
 
-	// CNIRuntimePath is the path where CNM state files are stored.
+	// CNIRuntimePath is the path where CNI state files are stored.
 	CNIRuntimePath = "/var/run/"
 )
 

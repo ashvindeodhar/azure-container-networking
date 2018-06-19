@@ -63,7 +63,6 @@ func (service *Service) Initialize(config *common.ServiceConfig) error {
 		if err != nil {
 			return err
 		}
-		log.Printf("ashvin: Parsed URL %+v localAddress %+v serverURL %+v", u, u.Host+u.Path, service.getAPIServerURL())
 
 		// Create the listener.
 		listener, err := acn.NewListener(u)

@@ -47,7 +47,6 @@ func NewPlugin(config *common.PluginConfig) (NetPlugin, error) {
 	}
 
 	client := cnsclient.NewClient()
-	// ashvin - pass this client thru config to ipam
 
 	config.NetApi = nil
 
@@ -83,6 +82,11 @@ func (plugin *netPlugin) Start(config *common.PluginConfig) error {
 	err = plugin.EnableDiscovery()
 	if err != nil {
 		log.Printf("[net] Failed to enable discovery: %v.", err)
+		return err
+	}
+
+	if err = plugin.cnsClient.SetPersistStoreUsage(true); err != nil {
+		log.Printf("[net] Failed to SetPersistStoreUsage for cns client, err: %v.", err)
 		return err
 	}
 
@@ -273,7 +277,6 @@ func (plugin *netPlugin) join(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Process request.
-	// ashvin - check if this works - you are returning an epInfo instead of ep.
 	epInfo, err := plugin.cnsClient.AttachEndpoint(req.NetworkID, req.EndpointID, req.SandboxKey)
 	if err != nil {
 		plugin.SendErrorResponse(w, err)

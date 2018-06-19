@@ -30,11 +30,12 @@ type ServiceAPI interface {
 
 // ServiceConfig specifies common configuration.
 type ServiceConfig struct {
-	Name     string
-	Version  string
-	Listener *acn.Listener
-	ErrChan  chan error
-	Store    store.KeyValueStore
+	Name       string
+	PluginName string
+	Version    string
+	Listener   *acn.Listener
+	ErrChan    chan error
+	Store      store.KeyValueStore
 }
 
 // NewService creates a new Service object.
