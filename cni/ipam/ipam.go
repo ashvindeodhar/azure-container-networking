@@ -43,7 +43,7 @@ func NewPlugin(config *common.PluginConfig) (*ipamPlugin, error) {
 		return nil, err
 	}
 
-	client := cnsclient.NewClient()
+	client := cnsclient.NewClient("cni")
 
 	// Create IPAM plugin.
 	ipamPlg := &ipamPlugin{
@@ -163,7 +163,9 @@ func (plugin *ipamPlugin) Add(args *cniSkel.CmdArgs) error {
 		defer func() {
 			if err != nil && poolID != "" {
 				log.Printf("[cni-ipam] Releasing pool %v.", poolID)
-				plugin.cnsClient.ReleasePool(nwCfg.Ipam.AddrSpace, poolID)
+				if errRelPool := plugin.cnsClient.ReleasePool(nwCfg.Ipam.AddrSpace, poolID); errRelPool != nil {
+					log.Printf("[cni-ipam] Failed to release pool. err: %v", errRelPool.Error())
+				}
 			}
 		}()
 
@@ -182,7 +184,9 @@ func (plugin *ipamPlugin) Add(args *cniSkel.CmdArgs) error {
 	defer func() {
 		if err != nil && address != "" {
 			log.Printf("[cni-ipam] Releasing address %v.", address)
-			plugin.cnsClient.ReleaseAddress(nwCfg.Ipam.AddrSpace, nwCfg.Ipam.Subnet, address, nil)
+			if errRelAddr := plugin.cnsClient.ReleaseAddress(nwCfg.Ipam.AddrSpace, nwCfg.Ipam.Subnet, address, nil); errRelAddr != nil {
+				log.Printf("[cni-ipam] Failed to release address. err: %v", errRelAddr.Error())
+			}
 		}
 	}()
 

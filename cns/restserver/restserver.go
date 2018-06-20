@@ -17,6 +17,7 @@ import (
 	"github.com/Azure/azure-container-networking/cns/ipamclient"
 	"github.com/Azure/azure-container-networking/cns/networkcontainers"
 	"github.com/Azure/azure-container-networking/cns/routes"
+	acn "github.com/Azure/azure-container-networking/common"
 	"github.com/Azure/azure-container-networking/ipam"
 	"github.com/Azure/azure-container-networking/log"
 	"github.com/Azure/azure-container-networking/network"
@@ -140,6 +141,26 @@ func (service *httpRestService) Start(config *common.ServiceConfig) error {
 
 	if err = service.restoreNetworkState(); err != nil {
 		log.Printf("[Azure CNS]  Failed to restore network state, err:%v.", err)
+		return err
+	}
+
+	var kvs store.KeyValueStore
+	var storePath string
+	if service.GetOption(acn.OptCnsUsePersistStore) == true {
+		storePath = fmt.Sprintf("%vazure-vnet.json", platform.CNMRuntimePath)
+	} else {
+		storePath = fmt.Sprintf("%vazure-vnet.json", platform.CNIRuntimePath)
+	}
+
+	kvs, _ = store.NewJsonFileStore(storePath)
+
+	// Initialize network manager
+	if err = service.nm.Initialize(kvs); err != nil {
+		log.Printf("[Azure CNS]  Failed to initialize network manager, err:%v.", err)
+		return err
+	} else if err = service.am.Initialize(service.nm, service.Options, kvs); err != nil {
+		// Initialize address manager.
+		log.Printf("[Azure CNS]  Failed to initialize IP address manager, err:%v.", err)
 		return err
 	}
 
@@ -784,9 +805,6 @@ func (service *httpRestService) setPersistStoreUsage(w http.ResponseWriter, r *h
 
 	switch r.Method {
 	case "POST":
-		// Create a key-value stores for plugin specific data.
-		// one store in persistent that allows restore after reboot
-		// the other store is non-persistent and cannot be restored after reboot
 		var kvs store.KeyValueStore
 		var storePath string
 		if req.UsePersistStore == true {
@@ -796,16 +814,12 @@ func (service *httpRestService) setPersistStoreUsage(w http.ResponseWriter, r *h
 		}
 
 		kvs, _ = store.NewJsonFileStore(storePath)
-		log.Printf("[Azure CNS]  Creating key-value store : %v", storePath)
-
-		// Initialize network manager
-		if err = service.nm.Initialize(kvs); err != nil {
-			log.Printf("[Azure CNS]  Failed to initialize network manager, err:%v.", err)
+		if err = service.nm.SetStore(kvs); err != nil {
+			log.Printf("[Azure CNS]  Failed to set store for network manager, err:%v.", err)
 			returnCode = UnexpectedError
 			returnMessage = err.Error()
-		} else if err = service.am.Initialize(service.nm, service.Options, kvs); err != nil {
-			// Initialize address manager.
-			log.Printf("[Azure CNS]  Failed to initialize IP address manager, err:%v.", err)
+		} else if err = service.am.SetStore(kvs); err != nil {
+			log.Printf("[Azure CNS]  Failed to set store for IP address manager, err:%v.", err)
 			returnCode = UnexpectedError
 			returnMessage = err.Error()
 		}

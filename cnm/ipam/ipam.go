@@ -40,7 +40,7 @@ func NewPlugin(config *common.PluginConfig) (IpamPlugin, error) {
 		return nil, err
 	}
 
-	client := cnsclient.NewClient()
+	client := cnsclient.NewClient("cnm")
 
 	config.IpamApi = nil
 
@@ -52,8 +52,15 @@ func NewPlugin(config *common.PluginConfig) (IpamPlugin, error) {
 
 // Start starts the plugin.
 func (plugin *ipamPlugin) Start(config *common.PluginConfig) error {
+	var err error
+	// Initialize cns client
+	if err = plugin.cnsClient.SetPersistStoreUsage(true); err != nil {
+		log.Printf("[ipam] Failed to SetPersistStoreUsage for cns client, err: %v.", err)
+		return err
+	}
+
 	// Initialize base plugin.
-	err := plugin.Initialize(config)
+	err = plugin.Initialize(config)
 	if err != nil {
 		log.Printf("[ipam] Failed to initialize base plugin, err:%v.", err)
 		return err
@@ -74,11 +81,6 @@ func (plugin *ipamPlugin) Start(config *common.PluginConfig) error {
 	err = plugin.EnableDiscovery()
 	if err != nil {
 		log.Printf("[ipam] Failed to enable discovery: %v.", err)
-		return err
-	}
-
-	if err = plugin.cnsClient.SetPersistStoreUsage(true); err != nil {
-		log.Printf("[ipam] Failed to SetPersistStoreUsage for cns client, err: %v.", err)
 		return err
 	}
 
@@ -122,12 +124,16 @@ func (plugin *ipamPlugin) getDefaultAddressSpaces(w http.ResponseWriter, r *http
 
 	log.Request(plugin.Name, &req, nil)
 
-	localId, globalId := plugin.cnsClient.GetDefaultAddressSpaces()
+	localId, globalId, err := plugin.cnsClient.GetDefaultAddressSpaces()
+	if err != nil {
+		plugin.SendErrorResponse(w, err)
+		return
+	}
 
 	resp.LocalDefaultAddressSpace = localId
 	resp.GlobalDefaultAddressSpace = globalId
 
-	err := plugin.Listener.Encode(w, &resp)
+	err = plugin.Listener.Encode(w, &resp)
 
 	log.Response(plugin.Name, &resp, err)
 }

@@ -42,6 +42,8 @@ type NetworkManager interface {
 	GetEndpointInfo(networkId string, endpointId string) (*EndpointInfo, error)
 	AttachEndpoint(networkId string, endpointId string, sandboxKey string) (*EndpointInfo, error)
 	DetachEndpoint(networkId string, endpointId string) error
+
+	SetStore(store store.KeyValueStore) error
 }
 
 // Creates a new network manager.
@@ -56,12 +58,22 @@ func NewNetworkManager() (NetworkManager, error) {
 // Initialize configures network manager.
 func (nm *networkManager) Initialize(store store.KeyValueStore) error {
 	if nm.initialized == false {
+		if err := nm.SetStore(store); err != nil {
+			return err
+		}
+		nm.initialized = true
+	}
+	return nil
+}
+
+// Set the key-value store and restore
+func (nm *networkManager) SetStore(store store.KeyValueStore) error {
+	if nm.store == nil {
 		nm.store = store
 		err := nm.restore()
 		if err != nil {
 			return err
 		}
-		nm.initialized = true
 	}
 	return nil
 }

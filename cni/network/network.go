@@ -46,7 +46,7 @@ func NewPlugin(config *common.PluginConfig) (*netPlugin, error) {
 
 	config.NetApi = nil
 
-	client := cnsclient.NewClient()
+	client := cnsclient.NewClient("cni")
 
 	return &netPlugin{
 		Plugin:    plugin,
@@ -194,6 +194,10 @@ func (plugin *netPlugin) Add(args *cniSkel.CmdArgs) error {
 	endpointId := GetEndpointID(args)
 
 	nwInfo, nwInfoErr := plugin.cnsClient.GetNetworkInfo(networkId)
+	if nwInfoErr != nil && nwInfoErr.Error() == "cns server unavailable" {
+		err = plugin.Errorf("Failed to get network info: %v", err)
+		return err
+	}
 
 	/* Handle consecutive ADD calls for infrastructure containers.
 	 * This is a temporary work around for issue #57253 of Kubernetes.
@@ -201,7 +205,11 @@ func (plugin *netPlugin) Add(args *cniSkel.CmdArgs) error {
 	 * Issue link: https://github.com/kubernetes/kubernetes/issues/57253
 	 */
 
-	epInfo, _ = plugin.cnsClient.GetEndpointInfo(networkId, endpointId)
+	epInfo, err = plugin.cnsClient.GetEndpointInfo(networkId, endpointId)
+	if err != nil && err.Error() == "cns server unavailable" {
+		err = plugin.Errorf("Failed to get endpoint info: %v", err)
+		return err
+	}
 
 	if epInfo != nil {
 		result, err = handleConsecutiveAdd(args.ContainerID, endpointId, nwInfo, nwCfg)
@@ -484,8 +492,7 @@ func (plugin *netPlugin) Delete(args *cniSkel.CmdArgs) error {
 	}
 
 	// Delete the endpoint.
-	err = plugin.cnsClient.DeleteEndpoint(networkId, endpointId)
-	if err != nil {
+	if err = plugin.cnsClient.DeleteEndpoint(networkId, endpointId); err != nil {
 		err = plugin.Errorf("Failed to delete endpoint: %v", err)
 		return err
 	}

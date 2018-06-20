@@ -105,6 +105,13 @@ var args = acn.ArgumentList{
 		Type:         "bool",
 		DefaultValue: false,
 	},
+	{
+		Name:         acn.OptCnsUsePersistStore,
+		Shorthand:    acn.OptCnsUsePersistStoreAlias,
+		Description:  "Set if the data store is persistent",
+		Type:         "bool",
+		DefaultValue: false,
+	},
 }
 
 // Prints description and version information.
@@ -127,6 +134,7 @@ func main() {
 	ipamQueryUrl, _ := acn.GetArg(acn.OptIpamQueryUrl).(string)
 	ipamQueryInterval, _ := acn.GetArg(acn.OptIpamQueryInterval).(int)
 	vers := acn.GetArg(acn.OptVersion).(bool)
+	usePersistStore := acn.GetArg(acn.OptCnsUsePersistStore).(bool)
 
 	if vers {
 		printVersion()
@@ -191,6 +199,7 @@ func main() {
 	httpRestService.SetOption(acn.OptAPIServerURL, url)
 	httpRestService.SetOption(acn.OptIpamQueryUrl, ipamQueryUrl)
 	httpRestService.SetOption(acn.OptIpamQueryInterval, ipamQueryInterval)
+	httpRestService.SetOption(acn.OptCnsUsePersistStore, usePersistStore)
 
 	// Start CNS.
 	if httpRestService != nil {

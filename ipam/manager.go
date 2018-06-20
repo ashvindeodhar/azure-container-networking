@@ -45,6 +45,8 @@ type AddressManager interface {
 
 	RequestAddress(asId, poolId, address string, options map[string]string) (string, error)
 	ReleaseAddress(asId, poolId, address string, options map[string]string) error
+
+	SetStore(store store.KeyValueStore) error
 }
 
 // AddressConfigSource configures the address pools managed by AddressManager.
@@ -73,11 +75,9 @@ func NewAddressManager() (AddressManager, error) {
 func (am *addressManager) Initialize(netAPI common.NetApi, options map[string]interface{}, store store.KeyValueStore) error {
 	if am.initialized == false {
 		am.netApi = netAPI
-		am.store = store
 
-		// Restore persisted state.
-		err := am.restore()
-		if err != nil {
+		var err error
+		if err = am.SetStore(store); err != nil {
 			return err
 		}
 
@@ -88,6 +88,20 @@ func (am *addressManager) Initialize(netAPI common.NetApi, options map[string]in
 			return err
 		}
 		am.initialized = true
+	}
+
+	return nil
+}
+
+// Set the key-value store and restore
+func (am *addressManager) SetStore(store store.KeyValueStore) error {
+	if am.store == nil {
+		am.store = store
+
+		// Restore persisted state.
+		if err := am.restore(); err != nil {
+			return err
+		}
 	}
 
 	return nil

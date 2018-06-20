@@ -42,6 +42,10 @@ const (
 	OptIpamQueryInterval      = "ipam-query-interval"
 	OptIpamQueryIntervalAlias = "i"
 
+	// Persist store usage
+	OptCnsUsePersistStore      = "use-persist-store"
+	OptCnsUsePersistStoreAlias = "s"
+
 	// Version.
 	OptVersion      = "version"
 	OptVersionAlias = "v"

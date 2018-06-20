@@ -45,7 +45,7 @@ func NewPlugin(config *common.PluginConfig) (NetPlugin, error) {
 		return nil, err
 	}
 
-	client := cnsclient.NewClient()
+	client := cnsclient.NewClient("cnm")
 
 	config.NetApi = nil
 
@@ -58,8 +58,15 @@ func NewPlugin(config *common.PluginConfig) (NetPlugin, error) {
 
 // Start starts the plugin.
 func (plugin *netPlugin) Start(config *common.PluginConfig) error {
+	var err error
+	// Initialize cns client
+	if err = plugin.cnsClient.SetPersistStoreUsage(true); err != nil {
+		log.Printf("[net] Failed to SetPersistStoreUsage for cns client, err: %v.", err)
+		return err
+	}
+
 	// Initialize base plugin.
-	err := plugin.Initialize(config)
+	err = plugin.Initialize(config)
 	if err != nil {
 		log.Printf("[net] Failed to initialize base plugin, err:%v.", err)
 		return err
@@ -81,11 +88,6 @@ func (plugin *netPlugin) Start(config *common.PluginConfig) error {
 	err = plugin.EnableDiscovery()
 	if err != nil {
 		log.Printf("[net] Failed to enable discovery: %v.", err)
-		return err
-	}
-
-	if err = plugin.cnsClient.SetPersistStoreUsage(true); err != nil {
-		log.Printf("[net] Failed to SetPersistStoreUsage for cns client, err: %v.", err)
 		return err
 	}
 
