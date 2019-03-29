@@ -75,4 +75,8 @@ const (
 	// Disable Telemetry
 	OptTelemetry      = "telemetry"
 	OptTelemetryAlias = "dt"
+
+	// Create ext Hns network
+	OptCreateExtSwitchNetworkType      = "create-extswitchnetwork-type"
+	OptCreateExtSwitchNetworkTypeAlias = "extswitchnetworktype"
 )

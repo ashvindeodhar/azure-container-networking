@@ -143,6 +143,13 @@ var args = acn.ArgumentList{
 		Type:         "bool",
 		DefaultValue: true,
 	},
+	{
+		Name:         acn.OptCreateExtSwitchNetworkType,
+		Shorthand:    acn.OptCreateExtSwitchNetworkTypeAlias,
+		Description:  "Create ext switch network for windows platform with the specified type (l2bridge or l2tunnel)",
+		Type:         "string",
+		DefaultValue: "",
+	},
 }
 
 // Prints description and version information.
@@ -170,6 +177,7 @@ func main() {
 	stopcnm = acn.GetArg(acn.OptStopAzureVnet).(bool)
 	vers := acn.GetArg(acn.OptVersion).(bool)
 	telemetryEnabled := acn.GetArg(acn.OptTelemetry).(bool)
+	createExtSwitchNetworkType := acn.GetArg(acn.OptCreateExtSwitchNetworkType).(string)
 
 	if vers {
 		printVersion()
@@ -230,6 +238,7 @@ func main() {
 	httpRestService.SetOption(acn.OptCnsURL, cnsURL)
 	httpRestService.SetOption(acn.OptNetPluginPath, cniPath)
 	httpRestService.SetOption(acn.OptNetPluginConfigFile, cniConfigFile)
+	httpRestService.SetOption(acn.OptCreateExtSwitchNetworkType, createExtSwitchNetworkType)
 
 	// Start CNS.
 	if httpRestService != nil {

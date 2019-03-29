@@ -173,6 +173,13 @@ func (service *HTTPRestService) Start(config *common.ServiceConfig) error {
 	listener.AddHandler(cns.V2Prefix+cns.AttachContainerToNetwork, service.attachNetworkContainerToNetwork)
 	listener.AddHandler(cns.V2Prefix+cns.DetachContainerFromNetwork, service.detachNetworkContainerFromNetwork)
 
+	createExtSwitchNetworkType, _ := service.GetOption(acn.OptCreateExtSwitchNetworkType).(string)
+	// Perform platform specific initialization
+	if err := platform.Init(createExtSwitchNetworkType); err != nil {
+		log.Printf("[Azure CNS] Failed with platform initialization due to error: %v", err)
+		return err
+	}
+
 	log.Printf("[Azure CNS]  Listening.")
 	return nil
 }

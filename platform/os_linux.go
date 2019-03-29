@@ -105,3 +105,8 @@ func KillProcessByName(processName string) error {
 	_, err := ExecuteCommand(cmd)
 	return err
 }
+
+// Perform platform specific initialization
+func Init(createExtSwitchNetworkType string) error {
+	return nil
+}
