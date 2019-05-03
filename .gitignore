@@ -8,6 +8,3 @@ ipam-*.xml
 
 # Environment
 .vscode/*
-
-# Locks
-**/*.lock
