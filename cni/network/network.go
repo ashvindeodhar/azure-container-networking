@@ -193,6 +193,7 @@ func (plugin *netPlugin) Add(args *cniSkel.CmdArgs) error {
 		subnetPrefix     net.IPNet
 		cnsNetworkConfig *cns.GetNetworkContainerResponse
 		enableInfraVnet  bool
+		nwDNSInfo        network.DNSInfo
 	)
 
 	log.Printf("[cni-net] Processing ADD command with args {ContainerID:%v Netns:%v IfName:%v Args:%v Path:%v}.",
@@ -363,7 +364,6 @@ func (plugin *netPlugin) Add(args *cniSkel.CmdArgs) error {
 			return err
 		}
 
-		var nwDNSInfo network.DNSInfo
 		nwDNSInfo, err = getNetworkDNSSettings(nwCfg, result, k8sNamespace)
 		if err != nil {
 			err = plugin.Errorf("Failed to getDNSSettings: %v", err)
@@ -506,11 +506,14 @@ func (plugin *netPlugin) Add(args *cniSkel.CmdArgs) error {
 // Get handles CNI Get commands.
 func (plugin *netPlugin) Get(args *cniSkel.CmdArgs) error {
 	var (
-		result cniTypesCurr.Result
-		err    error
-		nwCfg  *cni.NetworkConfig
-		epInfo *network.EndpointInfo
-		iface  *cniTypesCurr.Interface
+		result       cniTypesCurr.Result
+		err          error
+		nwCfg        *cni.NetworkConfig
+		epInfo       *network.EndpointInfo
+		iface        *cniTypesCurr.Interface
+		k8sPodName   string
+		k8sNamespace string
+		networkId    string
 	)
 
 	log.Printf("[cni-net] Processing GET command with args {ContainerID:%v Netns:%v IfName:%v Args:%v Path:%v}.",
@@ -547,13 +550,11 @@ func (plugin *netPlugin) Get(args *cniSkel.CmdArgs) error {
 	log.Printf("[cni-net] Read network configuration %+v.", nwCfg)
 
 	// Parse Pod arguments.
-	var k8sPodName, k8sNamespace string
 	if k8sPodName, k8sNamespace, err = plugin.getPodInfo(args.Args); err != nil {
 		return err
 	}
 
 	// Initialize values from network config.
-	var networkId string
 	if networkId, err = getNetworkName(k8sPodName, k8sNamespace, args.IfName, nwCfg); err != nil {
 		log.Printf("[cni-net] Failed to extract network name from network config. error: %v", err)
 	}
@@ -598,7 +599,15 @@ func (plugin *netPlugin) Get(args *cniSkel.CmdArgs) error {
 
 // Delete handles CNI delete commands.
 func (plugin *netPlugin) Delete(args *cniSkel.CmdArgs) error {
-	var err error
+	var (
+		err          error
+		nwCfg        *cni.NetworkConfig
+		k8sPodName   string
+		k8sNamespace string
+		networkId    string
+		nwInfo       *network.NetworkInfo
+		epInfo       *network.EndpointInfo
+	)
 
 	log.Printf("[cni-net] Processing DEL command with args {ContainerID:%v Netns:%v IfName:%v Args:%v Path:%v}.",
 		args.ContainerID, args.Netns, args.IfName, args.Args, args.Path)
@@ -606,7 +615,6 @@ func (plugin *netPlugin) Delete(args *cniSkel.CmdArgs) error {
 	defer func() { log.Printf("[cni-net] DEL command completed with err:%v.", err) }()
 
 	// Parse network configuration from stdin.
-	var nwCfg *cni.NetworkConfig
 	if nwCfg, err = cni.ParseNetworkConfig(args.StdinData); err != nil {
 		err = plugin.Errorf("[cni-net] Failed to parse network configuration: %v", err)
 		return err
@@ -617,13 +625,11 @@ func (plugin *netPlugin) Delete(args *cniSkel.CmdArgs) error {
 	plugin.setCNIReportDetails(nwCfg, CNI_DEL, "")
 
 	// Parse Pod arguments.
-	var k8sPodName, k8sNamespace string
 	if k8sPodName, k8sNamespace, err = plugin.getPodInfo(args.Args); err != nil {
 		log.Printf("[cni-net] Failed to get POD info due to error: %v", err)
 	}
 
 	// Initialize values from network config.
-	var networkId string
 	if networkId, err = getNetworkName(k8sPodName, k8sNamespace, args.IfName, nwCfg); err != nil {
 		log.Printf("[cni-net] Failed to extract network name from network config. error: %v", err)
 	}
@@ -631,7 +637,6 @@ func (plugin *netPlugin) Delete(args *cniSkel.CmdArgs) error {
 	endpointId := GetEndpointID(args)
 
 	// Query the network.
-	var nwInfo *network.NetworkInfo
 	if nwInfo, err = plugin.nm.GetNetworkInfo(networkId); err != nil {
 		// Log the error but return success if the endpoint being deleted is not found.
 		plugin.Errorf("[cni-net] Failed to query network: %v", err)
@@ -640,7 +645,6 @@ func (plugin *netPlugin) Delete(args *cniSkel.CmdArgs) error {
 	}
 
 	// Query the endpoint.
-	var epInfo *network.EndpointInfo
 	if epInfo, err = plugin.nm.GetEndpointInfo(networkId, endpointId); err != nil {
 		// Log the error but return success if the endpoint being deleted is not found.
 		plugin.Errorf("[cni-net] Failed to query endpoint: %v", err)
@@ -685,10 +689,14 @@ func (plugin *netPlugin) Delete(args *cniSkel.CmdArgs) error {
 // Update is only supported for multitenancy and to update routes.
 func (plugin *netPlugin) Update(args *cniSkel.CmdArgs) error {
 	var (
-		result         *cniTypesCurr.Result
-		err            error
-		nwCfg          *cni.NetworkConfig
-		existingEpInfo *network.EndpointInfo
+		result              *cniTypesCurr.Result
+		err                 error
+		nwCfg               *cni.NetworkConfig
+		existingEpInfo      *network.EndpointInfo
+		podCfg              *cni.K8SPodEnvArgs
+		cnsClient           *cnsclient.CNSClient
+		orchestratorContext []byte
+		targetNetworkConfig *cns.GetNetworkContainerResponse
 	)
 
 	log.Printf("[cni-net] Processing UPDATE command with args {Netns:%v Args:%v Path:%v}.",
@@ -725,7 +733,6 @@ func (plugin *netPlugin) Update(args *cniSkel.CmdArgs) error {
 	}()
 
 	// Parse Pod arguments.
-	var podCfg *cni.K8SPodEnvArgs
 	if podCfg, err = cni.ParseCniArgs(args.Args); err != nil {
 		log.Printf("[cni-net] Error while parsing CNI Args during UPDATE %v", err)
 		return err
@@ -767,7 +774,6 @@ func (plugin *netPlugin) Update(args *cniSkel.CmdArgs) error {
 
 	// now query CNS to get the target routes that should be there in the networknamespace (as a result of update)
 	log.Printf("Going to collect target routes for [name=%v, namespace=%v] from CNS.", k8sPodName, k8sNamespace)
-	var cnsClient *cnsclient.CNSClient
 	if cnsClient, err = cnsclient.NewCnsClient(nwCfg.CNSUrl); err != nil {
 		log.Printf("Initializing CNS client error in CNI Update%v", err)
 		log.Printf(err.Error())
@@ -776,13 +782,11 @@ func (plugin *netPlugin) Update(args *cniSkel.CmdArgs) error {
 
 	// create struct with info for target POD
 	podInfo := cns.KubernetesPodInfo{PodName: k8sPodName, PodNamespace: k8sNamespace}
-	var orchestratorContext []byte
 	if orchestratorContext, err = json.Marshal(podInfo); err != nil {
 		log.Printf("Marshalling KubernetesPodInfo failed with %v", err)
 		return plugin.Errorf(err.Error())
 	}
 
-	var targetNetworkConfig *cns.GetNetworkContainerResponse
 	if targetNetworkConfig, err = cnsClient.GetNetworkConfiguration(orchestratorContext); err != nil {
 		log.Printf("GetNetworkConfiguration failed with %v", err)
 		return plugin.Errorf(err.Error())
