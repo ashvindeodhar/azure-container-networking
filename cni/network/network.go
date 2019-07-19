@@ -363,7 +363,8 @@ func (plugin *netPlugin) Add(args *cniSkel.CmdArgs) error {
 			return err
 		}
 
-		nwDNSInfo, err := getNetworkDNSSettings(nwCfg, result, k8sNamespace)
+		var nwDNSInfo network.DNSInfo
+		nwDNSInfo, err = getNetworkDNSSettings(nwCfg, result, k8sNamespace)
 		if err != nil {
 			err = plugin.Errorf("Failed to getDNSSettings: %v", err)
 			return err
@@ -606,9 +607,9 @@ func (plugin *netPlugin) Delete(args *cniSkel.CmdArgs) error {
 	defer func() { log.Printf("[cni-net] DEL command completed with err:%v.", err) }()
 
 	// Parse network configuration from stdin.
-	nwCfg, err := cni.ParseNetworkConfig(args.StdinData)
-	if err != nil {
-		err = plugin.Errorf("Failed to parse network configuration: %v", err)
+	var nwCfg *cni.NetworkConfig
+	if nwCfg, err = cni.ParseNetworkConfig(args.StdinData); err != nil {
+		err = plugin.Errorf("[cni-net] Failed to parse network configuration: %v", err)
 		return err
 	}
 
@@ -617,40 +618,39 @@ func (plugin *netPlugin) Delete(args *cniSkel.CmdArgs) error {
 	plugin.setCNIReportDetails(nwCfg, CNI_DEL, "")
 
 	// Parse Pod arguments.
-	k8sPodName, k8sNamespace, err := plugin.getPodInfo(args.Args)
-	if err != nil {
+	var k8sPodName, k8sNamespace string
+	if k8sPodName, k8sNamespace, err = plugin.getPodInfo(args.Args); err != nil {
 		log.Printf("[cni-net] Failed to get POD info due to error: %v", err)
 	}
 
 	// Initialize values from network config.
-	networkId, err := getNetworkName(k8sPodName, k8sNamespace, args.IfName, nwCfg)
-	if err != nil {
+	var networkId string
+	if networkId, err = getNetworkName(k8sPodName, k8sNamespace, args.IfName, nwCfg); err != nil {
 		log.Printf("[cni-net] Failed to extract network name from network config. error: %v", err)
 	}
 
 	endpointId := GetEndpointID(args)
 
 	// Query the network.
-	nwInfo, err := plugin.nm.GetNetworkInfo(networkId)
-	if err != nil {
+	var nwInfo *network.NetworkInfo
+	if nwInfo, err = plugin.nm.GetNetworkInfo(networkId); err != nil {
 		// Log the error but return success if the endpoint being deleted is not found.
-		plugin.Errorf("Failed to query network: %v", err)
+		plugin.Errorf("[cni-net] Failed to query network: %v", err)
 		err = nil
 		return err
 	}
 
 	// Query the endpoint.
-	epInfo, err := plugin.nm.GetEndpointInfo(networkId, endpointId)
-	if err != nil {
+	var epInfo *network.EndpointInfo
+	if epInfo, err = plugin.nm.GetEndpointInfo(networkId, endpointId); err != nil {
 		// Log the error but return success if the endpoint being deleted is not found.
-		plugin.Errorf("Failed to query endpoint: %v", err)
+		plugin.Errorf("[cni-net] Failed to query endpoint: %v", err)
 		err = nil
 		return err
 	}
 
 	// Delete the endpoint.
-	err = plugin.nm.DeleteEndpoint(networkId, endpointId)
-	if err != nil {
+	if err = plugin.nm.DeleteEndpoint(networkId, endpointId); err != nil {
 		err = plugin.Errorf("Failed to delete endpoint: %v", err)
 		return err
 	}
