@@ -776,7 +776,7 @@ func (plugin *netPlugin) Update(args *cniSkel.CmdArgs) error {
 
 	// create struct with info for target POD
 	podInfo := cns.KubernetesPodInfo{PodName: k8sPodName, PodNamespace: k8sNamespace}
-	var []byte orchestratorContext
+	var orchestratorContext []byte
 	if orchestratorContext, err = json.Marshal(podInfo); err != nil {
 		log.Printf("Marshalling KubernetesPodInfo failed with %v", err)
 		return plugin.Errorf(err.Error())
