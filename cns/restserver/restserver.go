@@ -161,32 +161,8 @@ func (service *HTTPRestService) Start(config *common.ServiceConfig) error {
 	listener.AddHandler(cns.DetachContainerFromNetwork, service.detachNetworkContainerFromNetwork)
 	listener.AddHandler(cns.CreateCompartmentWithNCs, service.createCompartmentWithNCs)
 	listener.AddHandler(cns.DeleteCompartmentWithNCs, service.deleteCompartmentWithNCs)
-	listener.AddHandler(cns.AttachNcToCompartment, service.attachNcToCompartment)
-	listener.AddHandler(cns.DetachNcfromCompartment, service.detachNcFromCompartment)
 
-	// handlers for v0.2
-	listener.AddHandler(cns.V2Prefix+cns.SetEnvironmentPath, service.setEnvironment)
-	listener.AddHandler(cns.V2Prefix+cns.CreateNetworkPath, service.createNetwork)
-	listener.AddHandler(cns.V2Prefix+cns.DeleteNetworkPath, service.deleteNetwork)
-	listener.AddHandler(cns.V2Prefix+cns.ReserveIPAddressPath, service.reserveIPAddress)
-	listener.AddHandler(cns.V2Prefix+cns.ReleaseIPAddressPath, service.releaseIPAddress)
-	listener.AddHandler(cns.V2Prefix+cns.GetHostLocalIPPath, service.getHostLocalIP)
-	listener.AddHandler(cns.V2Prefix+cns.GetIPAddressUtilizationPath, service.getIPAddressUtilization)
-	listener.AddHandler(cns.V2Prefix+cns.GetUnhealthyIPAddressesPath, service.getUnhealthyIPAddresses)
-	listener.AddHandler(cns.V2Prefix+cns.CreateOrUpdateNetworkContainer, service.createOrUpdateNetworkContainer)
-	listener.AddHandler(cns.V2Prefix+cns.DeleteNetworkContainer, service.deleteNetworkContainer)
-	listener.AddHandler(cns.V2Prefix+cns.GetNetworkContainerStatus, service.getNetworkContainerStatus)
-	listener.AddHandler(cns.V2Prefix+cns.GetInterfaceForContainer, service.getInterfaceForContainer)
-	listener.AddHandler(cns.V2Prefix+cns.SetOrchestratorType, service.setOrchestratorType)
-	listener.AddHandler(cns.V2Prefix+cns.GetNetworkContainerByOrchestratorContext, service.getNetworkContainerByOrchestratorContext)
-	listener.AddHandler(cns.V2Prefix+cns.AttachContainerToNetwork, service.attachNetworkContainerToNetwork)
-	listener.AddHandler(cns.V2Prefix+cns.DetachContainerFromNetwork, service.detachNetworkContainerFromNetwork)
-	listener.AddHandler(cns.V2Prefix+cns.CreateCompartmentWithNCs, service.createCompartmentWithNCs)
-	listener.AddHandler(cns.V2Prefix+cns.DeleteCompartmentWithNCs, service.deleteCompartmentWithNCs)
-	listener.AddHandler(cns.V2Prefix+cns.AttachNcToCompartment, service.attachNcToCompartment)
-	listener.AddHandler(cns.V2Prefix+cns.DetachNcfromCompartment, service.detachNcFromCompartment)
-
-	log.Printf("[Azure CNS]  Listening.")
+	log.Printf("[Azure CNS]  Listening...")
 
 	return nil
 }
@@ -205,17 +181,18 @@ func (service *HTTPRestService) addCompartmentEndpoint(compartmentID int, endpoi
 	service.lock.Lock()
 	defer service.lock.Unlock()
 	service.state.CompartmentInfo[compartmentID] = append(service.state.CompartmentInfo[compartmentID], endpointName)
+	service.saveState()
 
 	return
 }
 
 // Remove the network info from the service network state
 func (service *HTTPRestService) removeCompartmentInfo(compartmentID int) {
-	service.lock.Lock()
-	defer service.lock.Unlock()
-
 	if _, found := service.getCompartmentInfo(compartmentID); found {
+		service.lock.Lock()
+		defer service.lock.Unlock()
 		delete(service.state.CompartmentInfo, compartmentID)
+		service.saveState()
 	}
 
 	return
@@ -379,7 +356,6 @@ func (service *HTTPRestService) setupNetworkAndEndpoints(ncID string, compartmen
 
 	// save the compartment state containing compartmentid and endpoint
 	service.addCompartmentEndpoint(compartmentID, networkEpName)
-	service.saveState()
 
 	return nil
 }
@@ -472,7 +448,7 @@ func (service *HTTPRestService) deleteCompartmentWithNCs(w http.ResponseWriter, 
 					log.Printf("[Azure CNS] HNSEndpointRequest DELETE response:%+v err:%v.", hnsResponse, err)
 				}
 
-				//service.removeCompartmentInfo(req.CompartmentID)
+				service.removeCompartmentInfo(req.CompartmentID)
 			}
 
 			args := []string{"/C", "acn.exe", "/operation", "delete", strconv.Itoa(req.CompartmentID)}
@@ -499,57 +475,19 @@ func (service *HTTPRestService) deleteCompartmentWithNCs(w http.ResponseWriter, 
 	log.Response(service.Name, resp, resp.ReturnCode, ReturnCodeToString(resp.ReturnCode), err)
 }
 
-/*
-// Handles request to delete windows network compartment.
-func (service *HTTPRestService) deleteCompartment(w http.ResponseWriter, r *http.Request) {
-	log.Printf("[Azure CNS] deleteCompartment")
-
-	returnCode := 0
-	returnMessage := ""
-	var req cns.DeleteCompartmentRequest
-	err := service.Listener.Decode(w, r, &req)
-	log.Request(service.Name, &req, err)
-
-	if _, err := os.Stat("./acn.exe"); err != nil {
-		if os.IsNotExist(err) {
-			log.Printf("[Azure CNS] Unable to find acn.exe. Cannot continue")
-			returnMessage = fmt.Sprintf("[Azure CNS] Error. Internal error managing compartment")
-			returnCode = UnexpectedError
-		}
-	} else {
-		if req.CompartmentID > 1 {
-			args := []string{"/C", "acn.exe", "/operation", "delete", strconv.Itoa(req.CompartmentID)}
-			log.Printf("[Azure CNS] Calling acn with args: %v", args)
-			c := exec.Command("cmd", args...)
-			if bytes, err := c.Output(); err != nil {
-				log.Printf("[Azure CNS] Failure with acn. error: %s", bytes)
-				returnMessage = fmt.Sprintf("%s", bytes)
-				returnCode = UnexpectedError
-			}
-		} else {
-			log.Printf("[Azure CNS] Invalid compartment id: %d", req.CompartmentID)
-			returnMessage = fmt.Sprintf("[Azure CNS] Invalid compartment id: %d", req.CompartmentID)
-			returnCode = InvalidParameter
-		}
-	}
-
-	resp := &cns.Response{
-		ReturnCode: returnCode,
-		Message:    returnMessage,
-	}
-
-	err = service.Listener.Encode(w, &resp)
-	log.Response(service.Name, resp, resp.ReturnCode, ReturnCodeToString(resp.ReturnCode), err)
-}*/
-
 // Handles requests to create compartment with NCs.
 func (service *HTTPRestService) createCompartmentWithNCs(w http.ResponseWriter, r *http.Request) {
 	log.Printf("[Azure CNS] createCompartmentWithNCs")
 
-	returnCode := 0
-	returnMessage := ""
-	var req cns.CreateCompartmentWithNCsRequest
-	err := service.Listener.Decode(w, r, &req)
+	var (
+		returnCode    int
+		returnMessage string
+		err           error
+		req           cns.CreateCompartmentWithNCsRequest
+		compartmentID int
+	)
+
+	err = service.Listener.Decode(w, r, &req)
 	log.Request(service.Name, &req, err)
 
 	var compartmentID int
@@ -604,79 +542,6 @@ func (service *HTTPRestService) createCompartmentWithNCs(w http.ResponseWriter, 
 	createCompartmentWithNCsResp := &cns.CreateCompartmentWithNCsResponse{Response: resp, CompartmentID: compartmentID}
 	err = service.Listener.Encode(w, &createCompartmentWithNCsResp)
 	log.Response(service.Name, createCompartmentWithNCsResp, resp.ReturnCode, ReturnCodeToString(resp.ReturnCode), err)
-}
-
-// Handles requests to attach network compartment to NC.
-func (service *HTTPRestService) attachNcToCompartment(w http.ResponseWriter, r *http.Request) {
-	log.Printf("[Azure CNS] attachNcToCompartment")
-
-	returnCode := 0
-	returnMessage := ""
-	var req cns.AttachNcToCompartmentRequest
-	err := service.Listener.Decode(w, r, &req)
-	log.Request(service.Name, &req, err)
-
-	if err != nil {
-		returnMessage = fmt.Sprintf("[Azure CNS] Error. Unable to decode input request.")
-		returnCode = InvalidParameter
-	} else {
-		switch r.Method {
-		case "POST":
-			log.Printf("[Azure CNS] POST received for attachNcToCompartment with NCID: %s CompartmentID: %d",
-				req.NCID, req.CompartmentID)
-			if err = service.setupNetworkAndEndpoints(req.NCID, req.CompartmentID); err != nil {
-				log.Printf("[Azure CNS] attachNcToCompartment failed due to error: %+v", err)
-				returnCode = UnexpectedError
-			}
-		default:
-			returnMessage = "[Azure CNS] Error. attachNcToCompartment did not receive POST."
-			returnCode = InvalidParameter
-		}
-	}
-
-	resp := &cns.Response{
-		ReturnCode: returnCode,
-		Message:    returnMessage,
-	}
-
-	err = service.Listener.Encode(w, &resp)
-	log.Response(service.Name, resp, resp.ReturnCode, ReturnCodeToString(resp.ReturnCode), err)
-}
-
-// Handles requests to detach network compartment to NC.
-func (service *HTTPRestService) detachNcFromCompartment(w http.ResponseWriter, r *http.Request) {
-	log.Printf("[Azure CNS] detachNcFromCompartment")
-
-	returnCode := 0
-	returnMessage := ""
-	var req cns.DetachNcFromCompartmentRequest
-	err := service.Listener.Decode(w, r, &req)
-	log.Request(service.Name, &req, err)
-
-	if err != nil {
-		returnMessage = fmt.Sprintf("[Azure CNS] Error. Unable to decode input request.")
-		returnCode = InvalidParameter
-	} else {
-		switch r.Method {
-		case "POST":
-			log.Printf("[Azure CNS] POST received for detachNcFromCompartment with NCID: %s", req.NCID)
-			if err = service.detachNc(req.NCID); err != nil {
-				log.Printf("[Azure CNS] detachNcFromCompartment failed due to error: %+v", err)
-				returnCode = UnexpectedError
-			}
-		default:
-			returnMessage = "[Azure CNS] Error. detachNcFromCompartment did not receive POST."
-			returnCode = InvalidParameter
-		}
-	}
-
-	resp := &cns.Response{
-		ReturnCode: returnCode,
-		Message:    returnMessage,
-	}
-
-	err = service.Listener.Encode(w, &resp)
-	log.Response(service.Name, resp, resp.ReturnCode, ReturnCodeToString(resp.ReturnCode), err)
 }
 
 // Stop stops the CNS.
