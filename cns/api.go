@@ -40,35 +40,15 @@ type CreateCompartmentWithNCsResponse struct {
 	CompartmentID int
 }
 
-// DeleteNCRequest describes request to delete network container.
-type DeleteNCRequest struct {
-	NCID string
-}
-
-// DeleteNCResponse describes response to delete network container.
-type DeleteNCResponse struct {
-	Response Response
-}
-
-// DeleteCompartmentRequest describes request to delete windows network compartment.
-type DeleteCompartmentRequest struct {
+// DeleteCompartmentWithNCsRequest describes request to delete windows network compartment with NCs.
+type DeleteCompartmentWithNCsRequest struct {
 	CompartmentID int
 }
 
-// DeleteCompartmentResponse describes response to delete windows network compartment.
-type DeleteCompartmentResponse struct {
-	Response Response
-}
-
-// AttachNcToCompartmentRequest describes request to attach NC to compartment
-type AttachNcToCompartmentRequest struct {
-	NCID          string
-	CompartmentID int
-}
-
-// DetachNcFromCompartmentRequest describes request to detach NC from compartment
-type DetachNcFromCompartmentRequest struct {
-	NCID string
+// GetCompartmentNCMapResponse describes response to get compartment-NC map request.
+type GetCompartmentNCMapResponse struct {
+	Response         Response
+	CompartmentNCmap map[int][]string
 }
 
 // OverlayConfiguration describes configuration for all the nodes that are part of overlay.
