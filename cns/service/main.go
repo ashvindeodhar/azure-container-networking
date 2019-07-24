@@ -162,7 +162,7 @@ func printVersion() {
 
 // Main is the entry point for CNS.
 func main() {
-	var stopcnm = false
+	var stopcnm = true
 	// Initialize and parse command line arguments.
 	acn.ParseArgs(&args, printVersion)
 
