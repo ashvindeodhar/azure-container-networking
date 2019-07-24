@@ -18,10 +18,10 @@ import (
 
 func TestAddNetworkPolicy(t *testing.T) {
 	npMgr := &NetworkPolicyManager{
-		nsMap: make(map[string]*namespace),
+		nsMap:            make(map[string]*namespace),
+		TelemetryEnabled: false,
 		reportManager: &telemetry.ReportManager{
-			HostNetAgentURL: hostNetAgentURLForNpm,
-			ContentType:     contentType,
+			ContentType:     telemetry.ContentType,
 			Report:          &telemetry.NPMReport{},
 		},
 	}
@@ -97,10 +97,10 @@ func TestAddNetworkPolicy(t *testing.T) {
 
 func TestUpdateNetworkPolicy(t *testing.T) {
 	npMgr := &NetworkPolicyManager{
-		nsMap: make(map[string]*namespace),
+		nsMap:            make(map[string]*namespace),
+		TelemetryEnabled: false,
 		reportManager: &telemetry.ReportManager{
-			HostNetAgentURL: hostNetAgentURLForNpm,
-			ContentType:     contentType,
+			ContentType:     telemetry.ContentType,
 			Report:          &telemetry.NPMReport{},
 		},
 	}
@@ -204,10 +204,10 @@ func TestUpdateNetworkPolicy(t *testing.T) {
 
 func TestDeleteNetworkPolicy(t *testing.T) {
 	npMgr := &NetworkPolicyManager{
-		nsMap: make(map[string]*namespace),
+		nsMap:            make(map[string]*namespace),
+		TelemetryEnabled: false,
 		reportManager: &telemetry.ReportManager{
-			HostNetAgentURL: hostNetAgentURLForNpm,
-			ContentType:     contentType,
+			ContentType:     telemetry.ContentType,
 			Report:          &telemetry.NPMReport{},
 		},
 	}

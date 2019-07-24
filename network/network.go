@@ -26,6 +26,7 @@ type externalInterface struct {
 	Networks    map[string]*network
 	Subnets     []string
 	BridgeName  string
+	DNSInfo     DNSInfo
 	MacAddress  net.HardwareAddr
 	IPAddresses []*net.IPNet
 	Routes      []*route
@@ -44,6 +45,7 @@ type network struct {
 	extIf            *externalInterface
 	DNS              DNSInfo
 	EnableSnatOnHost bool
+	SnatBridgeIP     string
 }
 
 // NetworkInfo contains read-only information about a container network.
@@ -208,7 +210,9 @@ func (nm *networkManager) deleteNetwork(networkId string) error {
 	}
 
 	// Remove the network object.
-	delete(nw.extIf.Networks, networkId)
+	if nw.extIf != nil {
+		delete(nw.extIf.Networks, networkId)
+	}
 
 	log.Printf("[net] Deleted network %+v.", nw)
 	return nil

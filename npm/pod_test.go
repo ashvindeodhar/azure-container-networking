@@ -37,11 +37,11 @@ func TestisSystemPod(t *testing.T) {
 
 func TestAddPod(t *testing.T) {
 	npMgr := &NetworkPolicyManager{
-		nsMap: make(map[string]*namespace),
+		nsMap:            make(map[string]*namespace),
+		TelemetryEnabled: false,
 		reportManager: &telemetry.ReportManager{
-			HostNetAgentURL: hostNetAgentURLForNpm,
-			ContentType:     contentType,
-			Report:          &telemetry.NPMReport{},
+			ContentType: telemetry.ContentType,
+			Report:      &telemetry.NPMReport{},
 		},
 	}
 
@@ -81,11 +81,11 @@ func TestAddPod(t *testing.T) {
 
 func TestUpdatePod(t *testing.T) {
 	npMgr := &NetworkPolicyManager{
-		nsMap: make(map[string]*namespace),
+		nsMap:            make(map[string]*namespace),
+		TelemetryEnabled: false,
 		reportManager: &telemetry.ReportManager{
-			HostNetAgentURL: hostNetAgentURLForNpm,
-			ContentType:     contentType,
-			Report:          &telemetry.NPMReport{},
+			ContentType: telemetry.ContentType,
+			Report:      &telemetry.NPMReport{},
 		},
 	}
 
@@ -143,11 +143,11 @@ func TestUpdatePod(t *testing.T) {
 
 func TestDeletePod(t *testing.T) {
 	npMgr := &NetworkPolicyManager{
-		nsMap: make(map[string]*namespace),
+		nsMap:            make(map[string]*namespace),
+		TelemetryEnabled: false,
 		reportManager: &telemetry.ReportManager{
-			HostNetAgentURL: hostNetAgentURLForNpm,
-			ContentType:     contentType,
-			Report:          &telemetry.NPMReport{},
+			ContentType: telemetry.ContentType,
+			Report:      &telemetry.NPMReport{},
 		},
 	}
 

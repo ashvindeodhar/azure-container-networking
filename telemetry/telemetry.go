@@ -4,11 +4,9 @@
 package telemetry
 
 import (
-	"bufio"
 	"encoding/json"
 	"encoding/xml"
 	"fmt"
-	"io"
 	"net"
 	"net/http"
 	"os"
@@ -17,6 +15,7 @@ import (
 	"strings"
 
 	"github.com/Azure/azure-container-networking/common"
+	"github.com/Azure/azure-container-networking/log"
 	"github.com/Azure/azure-container-networking/platform"
 )
 
@@ -25,9 +24,9 @@ const (
 	NPMTelemetryFile = platform.NPMRuntimePath + "AzureNPMTelemetry.json"
 	// CNITelemetryFile Path.
 	CNITelemetryFile = platform.CNIRuntimePath + "AzureCNITelemetry.json"
-
-	metadataURL = "http://169.254.169.254/metadata/instance?api-version=2017-08-01&format=json"
+	// ContentType of JSON
 	ContentType = "application/json"
+	metadataURL = "http://169.254.169.254/metadata/instance?api-version=2017-08-01&format=json"
 )
 
 // OS Details structure.
@@ -157,6 +156,7 @@ type NPMReport struct {
 	ErrorMessage      string
 	EventMessage      string
 	UpTime            string
+	Timestamp         string
 	ClusterState      ClusterState
 	Metadata          Metadata `json:"compute"`
 }
@@ -183,38 +183,6 @@ type ReportManager struct {
 	Report          interface{}
 }
 
-// ReadFileByLines reads file line by line and return array of lines.
-func ReadFileByLines(filename string) ([]string, error) {
-	var (
-		lineStrArr []string
-	)
-
-	f, err := os.Open(filename)
-	if err != nil {
-		return nil, fmt.Errorf("Error opening %s file error %v", filename, err)
-	}
-
-	r := bufio.NewReader(f)
-
-	for {
-		lineStr, err := r.ReadString('\n')
-		if err != nil {
-			if err != io.EOF {
-				return nil, fmt.Errorf("Error reading %s file error %v", filename, err)
-			}
-			break
-		}
-		lineStrArr = append(lineStrArr, lineStr)
-	}
-
-	err = f.Close()
-	if err != nil {
-		return nil, fmt.Errorf("Error closing %s file error %v", filename, err)
-	}
-
-	return lineStrArr, nil
-}
-
 // GetReport retrieves orchestrator, system, OS and Interface details and create a report structure.
 func (report *CNIReport) GetReport(name string, version string, ipamQueryURL string) {
 	report.Name = name
@@ -236,29 +204,16 @@ func (report *NPMReport) GetReport(clusterID, nodeName, npmVersion, kubernetesVe
 // SendReport will send telemetry report to HostNetAgent.
 func (reportMgr *ReportManager) SendReport(tb *TelemetryBuffer) error {
 	var err error
+	var report []byte
+
 	if tb != nil && tb.Connected {
-		telemetryLogger.Printf("[Telemetry] Going to send Telemetry report to hostnetagent")
-
-		switch reportMgr.Report.(type) {
-		case *CNIReport:
-			telemetryLogger.Printf("[Telemetry] %+v", reportMgr.Report.(*CNIReport))
-		case *NPMReport:
-			telemetryLogger.Printf("[Telemetry] %+v", reportMgr.Report.(*NPMReport))
-		case *DNCReport:
-			telemetryLogger.Printf("[Telemetry] %+v", reportMgr.Report.(*DNCReport))
-		default:
-			telemetryLogger.Printf("[Telemetry] Invalid report type")
-		}
-
-		report, err := reportMgr.ReportToBytes()
+		report, err = reportMgr.ReportToBytes()
 		if err == nil {
 			// If write fails, try to re-establish connections as server/client
 			if _, err = tb.Write(report); err != nil {
 				tb.Cancel()
 			}
 		}
-	} else {
-		err = fmt.Errorf("Not connected to telemetry server or tb is nil")
 	}
 
 	return err
@@ -284,13 +239,12 @@ func (reportMgr *ReportManager) SetReportState(telemetryFile string) error {
 
 	_, err = f.Write(reportBytes)
 	if err != nil {
-		telemetryLogger.Printf("[Telemetry] Error while writing to file %v", err)
+		fmt.Printf("[Telemetry] Error while writing to file %v", err)
 		return fmt.Errorf("[Telemetry] Error while writing to file %v", err)
 	}
 
 	// set IsNewInstance in report
 	reflect.ValueOf(reportMgr.Report).Elem().FieldByName("IsNewInstance").SetBool(false)
-	telemetryLogger.Printf("[Telemetry] SetReportState succeeded")
 	return nil
 }
 
@@ -298,7 +252,7 @@ func (reportMgr *ReportManager) SetReportState(telemetryFile string) error {
 func (reportMgr *ReportManager) GetReportState(telemetryFile string) bool {
 	// try to set IsNewInstance in report
 	if _, err := os.Stat(telemetryFile); os.IsNotExist(err) {
-		telemetryLogger.Printf("[Telemetry] File not exist %v", telemetryFile)
+		fmt.Printf("[Telemetry] File not exist %v", telemetryFile)
 		reflect.ValueOf(reportMgr.Report).Elem().FieldByName("IsNewInstance").SetBool(true)
 		return false
 	}
@@ -338,7 +292,7 @@ func (report *CNIReport) GetInterfaceDetails(queryUrl string) {
 	if resp.StatusCode != http.StatusOK {
 		errMsg := fmt.Sprintf("Error while getting interface details. http code :%d", resp.StatusCode)
 		report.InterfaceDetails.ErrorMessage = errMsg
-		telemetryLogger.Printf(errMsg)
+		log.Logf(errMsg)
 		return
 	}
 
@@ -430,7 +384,10 @@ func (report *CNIReport) GetOrchestratorDetails() {
 }
 
 // ReportToBytes - returns the report bytes
-func (reportMgr *ReportManager) ReportToBytes() (report []byte, err error) {
+func (reportMgr *ReportManager) ReportToBytes() ([]byte, error) {
+	var err error
+	var report []byte
+
 	switch reportMgr.Report.(type) {
 	case *CNIReport:
 	case *NPMReport:
@@ -440,9 +397,10 @@ func (reportMgr *ReportManager) ReportToBytes() (report []byte, err error) {
 		err = fmt.Errorf("[Telemetry] Invalid report type")
 	}
 
-	if err == nil {
-		report, err = json.Marshal(reportMgr.Report)
+	if err != nil {
+		return []byte{}, err
 	}
 
-	return
+	report, err = json.Marshal(reportMgr.Report)
+	return report, err
 }

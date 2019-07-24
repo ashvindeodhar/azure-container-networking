@@ -3,17 +3,22 @@
 
 package cns
 
+import "encoding/json"
+
 // Container Network Service remote API Contract
 const (
 	SetEnvironmentPath          = "/network/environment"
 	CreateNetworkPath           = "/network/create"
 	DeleteNetworkPath           = "/network/delete"
+	CreateHnsNetworkPath        = "/network/hns/create"
+	DeleteHnsNetworkPath        = "/network/hns/delete"
 	ReserveIPAddressPath        = "/network/ip/reserve"
 	ReleaseIPAddressPath        = "/network/ip/release"
 	GetHostLocalIPPath          = "/network/ip/hostlocal"
 	GetIPAddressUtilizationPath = "/network/ip/utilization"
 	GetUnhealthyIPAddressesPath = "/network/ipaddresses/unhealthy"
 	GetHealthReportPath         = "/network/health"
+	NumberOfCPUCoresPath        = "/hostcpucores"
 	V1Prefix                    = "/v0.1"
 	V2Prefix                    = "/v0.2"
 )
@@ -86,6 +91,42 @@ type DeleteNetworkRequest struct {
 	NetworkName string
 }
 
+// CreateHnsNetworkRequest describes request to create the HNS network.
+type CreateHnsNetworkRequest struct {
+	NetworkName          string
+	NetworkType          string
+	NetworkAdapterName   string            `json:",omitempty"`
+	SourceMac            string            `json:",omitempty"`
+	Policies             []json.RawMessage `json:",omitempty"`
+	MacPools             []MacPool         `json:",omitempty"`
+	Subnets              []SubnetInfo
+	DNSSuffix            string `json:",omitempty"`
+	DNSServerList        string `json:",omitempty"`
+	DNSServerCompartment uint32 `json:",omitempty"`
+	ManagementIP         string `json:",omitempty"`
+	AutomaticDNS         bool   `json:",omitempty"`
+}
+
+// SubnetInfo is assoicated with HNS network and represents a list
+// of subnets available to the network
+type SubnetInfo struct {
+	AddressPrefix  string
+	GatewayAddress string
+	Policies       []json.RawMessage `json:",omitempty"`
+}
+
+// MacPool is assoicated with HNS  network and represents a list
+// of macaddresses available to the network
+type MacPool struct {
+	StartMacAddress string
+	EndMacAddress   string
+}
+
+// DeleteHnsNetworkRequest describes request to delete the HNS network.
+type DeleteHnsNetworkRequest struct {
+	NetworkName string
+}
+
 // ReserveIPAddressRequest describes request to reserve an IP Address
 type ReserveIPAddressRequest struct {
 	ReservationID string
@@ -139,6 +180,12 @@ type NodeConfiguration struct {
 type Response struct {
 	ReturnCode int
 	Message    string
+}
+
+// NumOfCPUCoresResponse describes num of cpu cores present on host.
+type NumOfCPUCoresResponse struct {
+	Response      Response
+	NumOfCPUCores int
 }
 
 // OptionMap describes generic options that can be passed to CNS.

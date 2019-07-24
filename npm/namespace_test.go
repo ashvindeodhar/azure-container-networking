@@ -45,11 +45,11 @@ func TestAllNsList(t *testing.T) {
 
 func TestAddNamespace(t *testing.T) {
 	npMgr := &NetworkPolicyManager{
-		nsMap: make(map[string]*namespace),
+		nsMap:            make(map[string]*namespace),
+		TelemetryEnabled: false,
 		reportManager: &telemetry.ReportManager{
-			HostNetAgentURL: hostNetAgentURLForNpm,
-			ContentType:     contentType,
-			Report:          &telemetry.NPMReport{},
+			ContentType: telemetry.ContentType,
+			Report:      &telemetry.NPMReport{},
 		},
 	}
 
@@ -86,11 +86,11 @@ func TestAddNamespace(t *testing.T) {
 
 func TestUpdateNamespace(t *testing.T) {
 	npMgr := &NetworkPolicyManager{
-		nsMap: make(map[string]*namespace),
+		nsMap:            make(map[string]*namespace),
+		TelemetryEnabled: false,
 		reportManager: &telemetry.ReportManager{
-			HostNetAgentURL: hostNetAgentURLForNpm,
-			ContentType:     contentType,
-			Report:          &telemetry.NPMReport{},
+			ContentType: telemetry.ContentType,
+			Report:      &telemetry.NPMReport{},
 		},
 	}
 
@@ -140,11 +140,11 @@ func TestUpdateNamespace(t *testing.T) {
 
 func TestDeleteNamespace(t *testing.T) {
 	npMgr := &NetworkPolicyManager{
-		nsMap: make(map[string]*namespace),
+		nsMap:            make(map[string]*namespace),
+		TelemetryEnabled: false,
 		reportManager: &telemetry.ReportManager{
-			HostNetAgentURL: hostNetAgentURLForNpm,
-			ContentType:     contentType,
-			Report:          &telemetry.NPMReport{},
+			ContentType: telemetry.ContentType,
+			Report:      &telemetry.NPMReport{},
 		},
 	}
 

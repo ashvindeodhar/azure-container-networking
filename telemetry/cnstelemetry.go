@@ -16,27 +16,23 @@ import (
 
 const (
 	// CNSTelemetryFile - telemetry file path.
-	CNSTelemetryFile           = platform.CNSRuntimePath + "AzureCNSTelemetry.json"
-	errorcodePrefix            = 5
-	heartbeatIntervalInMinutes = 30
-	retryWaitTimeInSeconds     = 60
+	CNSTelemetryFile                = platform.CNSRuntimePath + "AzureCNSTelemetry.json"
+	errorcodePrefix                 = 5
+	heartbeatIntervalInMinutes      = 30
+	retryWaitTimeInSeconds          = 60
+	telemetryNumRetries             = 5
+	telemetryWaitTimeInMilliseconds = 200
 )
 
+var codeRegex = regexp.MustCompile(`Code:(\w*)`)
+
 // SendCnsTelemetry - handles cns telemetry reports
-func SendCnsTelemetry(interval int, reports chan interface{}, service *restserver.HTTPRestService, telemetryStopProcessing chan bool) {
+func SendCnsTelemetry(reports chan interface{}, service *restserver.HTTPRestService, telemetryStopProcessing chan bool) {
 
 CONNECT:
-	telemetryBuffer := NewTelemetryBuffer("")
-	err := telemetryBuffer.StartServer()
-	if err == nil || telemetryBuffer.FdExists {
-		if err := telemetryBuffer.Connect(); err != nil {
-			log.Printf("[CNS-Telemetry] Failed to establish telemetry manager connection.")
-			time.Sleep(time.Second * retryWaitTimeInSeconds)
-			goto CONNECT
-		}
-
-		go telemetryBuffer.BufferAndPushData(time.Duration(0))
-
+	tb := NewTelemetryBuffer("")
+	tb.ConnectToTelemetryService(telemetryNumRetries, telemetryWaitTimeInMilliseconds)
+	if tb.Connected {
 		heartbeat := time.NewTicker(time.Minute * heartbeatIntervalInMinutes).C
 		reportMgr := ReportManager{
 			ContentType: ContentType,
@@ -56,14 +52,14 @@ CONNECT:
 			case <-heartbeat:
 				reflect.ValueOf(reportMgr.Report).Elem().FieldByName("EventMessage").SetString("Heartbeat")
 			case msg := <-reports:
-				codeStr := regexp.MustCompile(`Code:(\w*)`).FindString(msg.(string))
+				codeStr := codeRegex.FindString(msg.(string))
 				if len(codeStr) > errorcodePrefix {
 					reflect.ValueOf(reportMgr.Report).Elem().FieldByName("Errorcode").SetString(codeStr[errorcodePrefix:])
 				}
 
 				reflect.ValueOf(reportMgr.Report).Elem().FieldByName("EventMessage").SetString(msg.(string))
 			case <-telemetryStopProcessing:
-				telemetryBuffer.Cancel()
+				tb.Close()
 				return
 			}
 
@@ -79,15 +75,12 @@ CONNECT:
 			report, err := reportMgr.ReportToBytes()
 			if err == nil {
 				// If write fails, try to re-establish connections as server/client
-				if _, err = telemetryBuffer.Write(report); err != nil {
-					telemetryBuffer.Cancel()
+				if _, err = tb.Write(report); err != nil {
+					log.Logf("[CNS-Telemetry] Telemetry write failed: %v", err)
+					tb.Close()
 					goto CONNECT
 				}
 			}
 		}
-	} else {
-		log.Printf("[CNS-Telemetry] Failed to start telemetry manager server.")
-		time.Sleep(time.Second * retryWaitTimeInSeconds)
-		goto CONNECT
 	}
 }
