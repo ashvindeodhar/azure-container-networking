@@ -201,6 +201,20 @@ func (service *HTTPRestService) removeCompartmentInfo(compartmentID int) {
 // setupNetworkAndEndpoints.
 func (service *HTTPRestService) setupNetworkAndEndpoints(ncID string, compartmentID int) error {
 	log.Printf("[Azure CNS] Retrieve container state")
+
+	var (
+		err          error
+		subnetPrefix net.IPNet
+		network      *hcsshim.HNSNetwork
+		endpoint     *hcsshim.HNSEndpoint
+		ipAddress    net.IP
+	)
+
+	//TODO: this function can be split into-
+	// 1.Get network container state
+	// 2.Create network
+	// 3.Create endpoint
+
 	containerID := "Swift_" + ncID
 	containerStatus := service.state.ContainerStatus
 	containerDetails, ok := containerStatus[containerID]
@@ -221,92 +235,98 @@ func (service *HTTPRestService) setupNetworkAndEndpoints(ncID string, compartmen
 
 	// validate the multitenancy info
 	if networkContainerInfo.MultiTenancyInfo.EncapType != "Vlan" {
-		return fmt.Errorf("Invalid multitenancy Encap type: %s. Expecting Vlan", networkContainerInfo.MultiTenancyInfo.EncapType)
+		return fmt.Errorf("Invalid multitenancy Encap type: %s. Expecting Vlan",
+			networkContainerInfo.MultiTenancyInfo.EncapType)
 	}
 
 	if networkContainerInfo.MultiTenancyInfo.ID == 0 {
 		return fmt.Errorf("Invalid multitenancy vlan id: %s", networkContainerInfo.MultiTenancyInfo.ID)
 	}
 
-	ipAddr := net.ParseIP(networkContainerInfo.IPConfiguration.IPSubnet.IPAddress)
-	var subnetPrefix net.IPNet
-	if ipAddr.To4() != nil {
+	//TODO: check if there is an update to this code
+	ipAddress = net.ParseIP(networkContainerInfo.IPConfiguration.IPSubnet.IPAddress)
+	if ipAddress.To4() != nil {
 		subnetPrefix = net.IPNet{
-			IP:   ipAddr,
+			IP:   ipAddress,
 			Mask: net.CIDRMask(int(networkContainerInfo.IPConfiguration.IPSubnet.PrefixLength), 32)}
 	} else {
 		subnetPrefix = net.IPNet{
-			IP:   ipAddr,
+			IP:   ipAddress,
 			Mask: net.CIDRMask(int(networkContainerInfo.IPConfiguration.IPSubnet.PrefixLength), 128)}
 	}
 
 	subnetPrefix.IP = subnetPrefix.IP.Mask(subnetPrefix.Mask)
 
-	var hnsIDCustVNet string
-	createNetwork := true
-	networkName := fmt.Sprintf("azure-vlanid%v", networkContainerInfo.MultiTenancyInfo.ID)
-	networkEpName := fmt.Sprintf("%s-%s", networkName, ncID)
-	// Check if the network exists already
-	log.Printf("[Azure CNS] Checking if the network %s is already created", networkName)
-	if hnsResponse, err := hcsshim.GetHNSNetworkByName(networkName); err == nil {
-		hnsIDCustVNet = hnsResponse.Id
-		log.Printf("[Azure CNS] Found network %s. hnsResponse: %+v", networkName, hnsResponse)
-		createNetwork = false
-	}
+	//TODO: check with SQLMI - how / what ACLs are needed on the network / endpoint. How do they intend to specify that?
+	// azure-cns.config?
 
-	if createNetwork {
-		// Create the HNS network.
+	//TODO: use subnet name in the network name
+	networkName := fmt.Sprintf("azure-vlanid%v", networkContainerInfo.MultiTenancyInfo.ID)
+	endpointName := fmt.Sprintf("%s-%s", networkName, ncID)
+
+	// Check if the network already exists
+	if network, err = hcsshim.GetHNSNetworkByName(networkName); err != nil {
+		// If error is anything other than networkNotFound return error
+		if _, networkNotFound := err.(hcsshim.NetworkNotFoundError); !networkNotFound {
+			return fmt.Errorf("[Azure CNS] ERROR: Failed GetHNSNetworkByName due to error: %v", err)
+		}
+
+		// Create the network.
 		log.Printf("[Azure CNS] Creating network %s", networkName)
 		dnsList := "10.0.0.10,168.63.129.16" // TODO: Add DNS from cns config too.
-		hnsNetwork := &hcsshim.HNSNetwork{
+		network = &hcsshim.HNSNetwork{
 			Name:          networkName,
 			DNSServerList: dnsList,
 		}
-		hnsNetwork.Type = "l2bridge"
+		network.Type = "l2bridge" // should this be bridge or configurable
+
+		// Set the network VLAN policy
 		vlanPolicy := hcsshim.VlanPolicy{
 			Type: "VLAN",
 		}
-
 		vlanPolicy.VLAN = uint(networkContainerInfo.MultiTenancyInfo.ID)
 		serializedVlanPolicy, _ := json.Marshal(vlanPolicy)
-		hnsNetwork.Policies = append(hnsNetwork.Policies, serializedVlanPolicy)
+		network.Policies = append(network.Policies, serializedVlanPolicy)
 
-		// Populate subnets.
-		//for _, subnet := range nwInfo.Subnets {
-		hnsSubnet := hcsshim.Subnet{
+		// Populate subnet
+		subnet := hcsshim.Subnet{
 			AddressPrefix:  subnetPrefix.String(),
 			GatewayAddress: networkContainerInfo.IPConfiguration.GatewayIPAddress,
 		}
+		network.Subnets = append(network.Subnets, subnet)
 
-		hnsNetwork.Subnets = append(hnsNetwork.Subnets, hnsSubnet)
-		//}
-
-		// Marshal the request.
-		buffer, err := json.Marshal(hnsNetwork)
+		createNetworkRequest, err := json.Marshal(network)
 		if err != nil {
-			return fmt.Errorf("[Azure CNS] Failed to marshal hnsNetwork %s due to err:%v", networkName, err)
+			return fmt.Errorf("[Azure CNS] Failed to marshal network %s due to error: %v",
+				networkName, err)
 		}
-		hnsRequest := string(buffer)
 
-		// Create the HNS network.
-		log.Printf("[Azure CNS] HNSNetworkRequest POST request:%+v", hnsRequest)
-		hnsResponse, err := hcsshim.HNSNetworkRequest("POST", "", hnsRequest)
-		log.Printf("[Azure CNS] HNSNetworkRequest POST response:%+v err:%v.", hnsResponse, err)
-		if err != nil {
-			return fmt.Errorf("[Azure CNS] Failed to create hnsNetwork %s err:%v", networkName, err)
-		} else {
-			hnsIDCustVNet = hnsResponse.Id
-			log.Printf("[Azure CNS] Created network %s. hnsResponse: %+v", networkName, hnsResponse)
+		// Create HNS network.
+		log.Printf("[Azure CNS] Creating HNS network: %+v", string(createNetworkRequest))
+		if network, err = hcsshim.HNSNetworkRequest("POST", "", string(createNetworkRequest)); err != nil {
+			return fmt.Errorf("[Azure CNS] Failed to create HNS network: %s due to error: %v", networkName, err)
 		}
+
+		log.Printf("[Azure CNS] Successfully created network: %+v", network)
+
+	} else {
+		log.Printf("[Azure CNS] Network is already present. Network: %+v", network)
 	}
 
-	// Create endpoint if it's not already present
-	if ep, err := hcsshim.GetHNSEndpointByName(networkEpName); err != nil {
+	// Check if the endpoint already exists
+	if endpoint, err = hcsshim.GetHNSEndpointByName(endpointName); err != nil {
+		// If error is anything other than endpointNotFound return error
+		if _, endpointNotFound := err.(hcsshim.EndpointNotFoundError); !endpointNotFound {
+			return fmt.Errorf("[Azure CNS] ERROR: Failed GetHNSEndpointByName due to error: %v", err)
+		}
+
+		//TODO: check if there is any update to the policy code in CNI
 		var jsonPolicies []json.RawMessage
 		outBoundNatPolicy := hcsshim.OutboundNatPolicy{}
 		outBoundNatPolicy.Policy.Type = hcsshim.OutboundNat
 		for _, ipAddress := range networkContainerInfo.CnetAddressSpace {
-			outBoundNatPolicy.Exceptions = append(outBoundNatPolicy.Exceptions, ipAddress.IPAddress+"/"+strconv.Itoa(int(ipAddress.PrefixLength)))
+			outBoundNatPolicy.Exceptions = append(outBoundNatPolicy.Exceptions,
+				ipAddress.IPAddress+"/"+strconv.Itoa(int(ipAddress.PrefixLength)))
 		}
 
 		if outBoundNatPolicy.Exceptions != nil {
@@ -315,98 +335,42 @@ func (service *HTTPRestService) setupNetworkAndEndpoints(ncID string, compartmen
 		}
 
 		dnsList := "10.0.0.10,168.63.129.16" //TODO: Add DNS from cns.config too.
-		hnsEndpoint := &hcsshim.HNSEndpoint{
-			Name:           networkEpName,
-			IPAddress:      ipAddr,
-			VirtualNetwork: hnsIDCustVNet,
+		endpoint = &hcsshim.HNSEndpoint{
+			Name:           endpointName,
+			IPAddress:      ipAddress,
+			VirtualNetwork: network.Id,
 			// DNSSuffix: "ns1.svc.cluster.local", //TODO: This is coming from the nwConfig and not cns config
 			DNSServerList: dnsList,
 			Policies:      jsonPolicies,
 		}
 
-		// Marshal the request.
-		buffer, err := json.Marshal(hnsEndpoint)
+		createEndpointRequest, err := json.Marshal(endpoint)
 		if err != nil {
-			return fmt.Errorf("[Azure CNS] Failed to marshal hnsEndpoint %s err:%v", networkEpName, err)
-		}
-		hnsRequest := string(buffer)
-
-		// Create the HNS endpoint.
-		log.Printf("[Azure CNS] HNSEndpointRequest POST request:%+v", hnsRequest)
-		hnsResponse, err := hcsshim.HNSEndpointRequest("POST", "", hnsRequest)
-		log.Printf("[Azure CNS] HNSEndpointRequest POST response:%+v err:%v.", hnsResponse, err)
-		if err != nil {
-			return fmt.Errorf("[Azure CNS] Failed to create hnsEndpoint %s err:%v", networkEpName, err)
+			return fmt.Errorf("[Azure CNS] Failed to marshal endpoint %s err:%v", endpointName, err)
 		}
 
-		log.Printf("[Azure CNS] Created endpoint %s. hnsResponse: %+v", networkEpName, hnsResponse)
+		// Create HNS endpoint.
+		log.Printf("[Azure CNS] Creating HNS endpoint: %+v", string(createEndpointRequest))
+		if endpoint, err = hcsshim.HNSEndpointRequest("POST", "", string(createEndpointRequest)); err != nil {
+			return fmt.Errorf("[Azure CNS] Failed to create HNS endpoint: %s error: %v", endpointName, err)
+		}
+
+		log.Printf("[Azure CNS] Successfully created endpoint: %+v", endpoint)
 	} else {
-		log.Printf("[Azure CNS] Endpoint already exists: %s %+v", networkEpName, ep)
+		log.Printf("[Azure CNS] Endpoint is already present. Endpoint: %+v", endpoint)
 	}
 
 	// Attach endpoint to the compartment
-	cid := uint16(compartmentID)
-	ep, _ := hcsshim.GetHNSEndpointByName(networkEpName)
-	if err := ep.HostAttach(cid); err != nil {
-		return fmt.Errorf("[Azure CNS] Failed to attach endpoint %s to compartment %d. err: %+v",
-			networkEpName, compartmentID, err)
+	endpoint, _ = hcsshim.GetHNSEndpointByName(endpointName)
+	if err = endpoint.HostAttach(uint16(compartmentID)); err != nil {
+		return fmt.Errorf("[Azure CNS] Failed to attach endpoint: %s to compartment with ID: %d due to error: %+v",
+			endpointName, compartmentID, err)
 	}
 
-	log.Printf("[Azure CNS] Successfully attached endpoint %s to compartment %d", networkEpName, compartmentID)
+	log.Printf("[Azure CNS] Successfully attached endpoint: %s to compartment with ID: %d", endpointName, compartmentID)
 
-	// save the compartment state containing compartmentid and endpoint
-	service.addCompartmentEndpoint(compartmentID, networkEpName)
-
-	return nil
-}
-
-// detachNc detaches the endpoint for NC from host
-func (service *HTTPRestService) detachNc(ncID string) error {
-	log.Printf("[Azure CNS] Retrieve container state")
-	containerID := "Swift_" + ncID
-	containerStatus := service.state.ContainerStatus
-	containerDetails, ok := containerStatus[containerID]
-	if !ok {
-		return fmt.Errorf("Network container: %s not found", ncID)
-	}
-
-	savedReq := containerDetails.CreateNetworkContainerRequest
-	networkContainerInfo := cns.GetNetworkContainerResponse{
-		IPConfiguration:            savedReq.IPConfiguration,
-		Routes:                     savedReq.Routes,
-		CnetAddressSpace:           savedReq.CnetAddressSpace,
-		MultiTenancyInfo:           savedReq.MultiTenancyInfo,
-		PrimaryInterfaceIdentifier: savedReq.PrimaryInterfaceIdentifier,
-		LocalIPConfiguration:       savedReq.LocalIPConfiguration,
-	}
-	log.Printf("[Azure CNS] Retrieved network container state: %s %+v", containerID, networkContainerInfo)
-
-	// validate the multitenancy info
-	if networkContainerInfo.MultiTenancyInfo.EncapType != "Vlan" {
-		return fmt.Errorf("Invalid multitenancy Encap type: %s. Expecting Vlan", networkContainerInfo.MultiTenancyInfo.EncapType)
-	}
-
-	if networkContainerInfo.MultiTenancyInfo.ID == 0 {
-		return fmt.Errorf("Invalid multitenancy vlan id: %s", networkContainerInfo.MultiTenancyInfo.ID)
-	}
-
-	networkName := fmt.Sprintf("azure-vlanid%v", networkContainerInfo.MultiTenancyInfo.ID)
-	_, err := hcsshim.GetHNSNetworkByName(networkName)
-	if err != nil {
-		return fmt.Errorf("Cannot find the network to which the NC %s belongs to", ncID)
-	}
-
-	networkEpName := fmt.Sprintf("%s-%s", networkName, ncID)
-	ep, err := hcsshim.GetHNSEndpointByName(networkEpName)
-	if err != nil {
-		return fmt.Errorf("Cannot find endpoint to which the NC %s belongs to", ncID)
-	}
-
-	if err := ep.HostDetach(); err != nil {
-		return fmt.Errorf("[Azure CNS] Failed to detach endpoint %s. err: %+v", networkEpName, err)
-	}
-
-	log.Printf("[Azure CNS] Successfully detached endpoint %s", networkEpName)
+	// save the compartment state
+	service.addCompartmentEndpoint(compartmentID, endpointName)
 
 	return nil
 }
@@ -415,55 +379,96 @@ func (service *HTTPRestService) detachNc(ncID string) error {
 func (service *HTTPRestService) deleteCompartmentWithNCs(w http.ResponseWriter, r *http.Request) {
 	log.Printf("[Azure CNS] deleteCompartmentWithNCs")
 
-	returnCode := 0
-	returnMessage := ""
-	var req cns.DeleteCompartmentRequest
-	err := service.Listener.Decode(w, r, &req)
+	// TODO: move this to windows specific file
+	var (
+		returnCode    int
+		returnMessage string
+		err           error
+		req           cns.DeleteCompartmentRequest
+		acnBinaryName = "acn.exe"
+	)
+
+	const defaultCompartmentID = 1
+
+	err = service.Listener.Decode(w, r, &req)
 	log.Request(service.Name, &req, err)
 
-	if _, err := os.Stat("./acn.exe"); err != nil {
-		if os.IsNotExist(err) {
-			log.Printf("[Azure CNS] Unable to find acn.exe. Cannot continue")
-			returnMessage = fmt.Sprintf("[Azure CNS] Error. Internal error managing compartment")
-			returnCode = UnexpectedError
-		}
-	} else {
-		if req.CompartmentID > 1 {
-			if compartmentInfo, found := service.getCompartmentInfo(req.CompartmentID); found {
-				for _, endpoint := range compartmentInfo {
-					//delete endpoint
-					ep, _ := hcsshim.GetHNSEndpointByName(endpoint)
+	if err != nil {
+		return
+	}
 
-					if err := ep.HostDetach(); err != nil {
-						//return fmt.Errorf("[Azure CNS] Failed to detach endpoint %s. err: %+v", endpoint, err)
-						log.Printf("[Azure CNS] Failed to detached endpoint %s due to error %v", endpoint, err)
+	// TODO: Do I need to check service.state.Initialized = true? when is this set ?
+	switch r.Method {
+	case "DELETE":
+		if req.CompartmentID <= defaultCompartmentID {
+			returnMessage = fmt.Sprintf("ERROR: Invalid compartment ID specified")
+			returnCode = InvalidParameter
+		} else {
+			if _, err := os.Stat(acnBinaryName); err != nil {
+				log.Printf("[Azure CNS] ERROR: Unable to find %s needed for compartment deletion", acnBinaryName)
+				returnMessage = fmt.Sprintf("ERROR: Unable to delete the compartment")
+				returnCode = UnexpectedError
+			} else if compartmentInfo, found := service.getCompartmentInfo(req.CompartmentID); found {
+				var endpoint *hcsshim.HNSEndpoint
+				for _, endpointName := range compartmentInfo {
+					endpoint, err = hcsshim.GetHNSEndpointByName(endpointName)
+					if err != nil {
+						// If error is anything other than endpointNotFound return error
+						if _, endpointNotFound := err.(hcsshim.EndpointNotFoundError); !endpointNotFound {
+							returnMessage = fmt.Sprintf("ERROR: Unable to retrieve endpoint for deletion")
+							returnCode = UnexpectedError
+							break
+						}
 
+						// If the endpoint is not found continue to delete the next endpoint
+						log.Printf("[Azure CNS] ERROR: Unable to find endpoint: %s for deletion", endpointName)
+						continue
 					}
 
-					log.Printf("[Azure CNS] Successfully detached endpoint %s", endpoint)
+					// Detach endpoint from the compartment
+					log.Printf("[Azure CNS] Detaching HNS endpoint: %+v", endpoint)
+					if err = endpoint.HostDetach(); err != nil {
+						returnMessage = fmt.Sprintf("ERROR: Failed to detach endpoint: %s due to error: %v",
+							endpoint, err)
+						returnCode = UnexpectedError
+						break
+					}
 
-					// Delete the HNS endpoint.
-					log.Printf("[Azure CNS] HNSEndpointRequest DELETE id:%v", ep.Id)
-					hnsResponse, err := hcsshim.HNSEndpointRequest("DELETE", ep.Id, "")
-					log.Printf("[Azure CNS] HNSEndpointRequest DELETE response:%+v err:%v.", hnsResponse, err)
+					log.Printf("[Azure CNS] Successfully detached endpoint: %s", endpointName)
+
+					// Delete HNS endpoint
+					log.Printf("[Azure CNS] Deleting HNS endpoint: %+v", endpoint)
+					if _, err = hcsshim.HNSEndpointRequest("DELETE", endpoint.Id, ""); err != nil {
+						returnMessage = fmt.Sprintf("ERROR: Failed to delete endpoint: %s due to error: %v",
+							endpoint, err)
+						returnCode = UnexpectedError
+						break
+					}
+
+					log.Printf("[Azure CNS] Successfully deleted endpoint: %s", endpointName)
 				}
 
-				service.removeCompartmentInfo(req.CompartmentID)
-			}
+				if err == nil {
+					args := []string{"/C", "acn.exe", "/operation", "delete", strconv.Itoa(req.CompartmentID)}
+					log.Printf("[Azure CNS] Calling acn with args: %v", args)
+					c := exec.Command("cmd", args...)
+					if bytes, err := c.Output(); err != nil {
+						log.Printf("[Azure CNS] Failure with acn. error: %s", bytes)
+						returnMessage = fmt.Sprintf("%s", bytes)
+						returnCode = UnexpectedError
+					}
 
-			args := []string{"/C", "acn.exe", "/operation", "delete", strconv.Itoa(req.CompartmentID)}
-			log.Printf("[Azure CNS] Calling acn with args: %v", args)
-			c := exec.Command("cmd", args...)
-			if bytes, err := c.Output(); err != nil {
-				log.Printf("[Azure CNS] Failure with acn. error: %s", bytes)
-				returnMessage = fmt.Sprintf("%s", bytes)
-				returnCode = UnexpectedError
+					service.removeCompartmentInfo(req.CompartmentID)
+					returnMessage = fmt.Sprintf("Successfully deleted network compartment with ID: %d", req.CompartmentID)
+				}
+			} else {
+				returnMessage = fmt.Sprintf("ERROR: Attempting to delete invalid compartment")
+				returnCode = InvalidParameter
 			}
-		} else {
-			log.Printf("[Azure CNS] Invalid compartment id: %d", req.CompartmentID)
-			returnMessage = fmt.Sprintf("[Azure CNS] Invalid compartment id: %d", req.CompartmentID)
-			returnCode = InvalidParameter
 		}
+	default:
+		returnMessage = fmt.Sprintf("ERROR: deleteCompartmentWithNCs API expects a DELETE")
+		returnCode = UnexpectedError // TODO: change this with UnsupportedVerb
 	}
 
 	resp := &cns.Response{
@@ -479,59 +484,86 @@ func (service *HTTPRestService) deleteCompartmentWithNCs(w http.ResponseWriter, 
 func (service *HTTPRestService) createCompartmentWithNCs(w http.ResponseWriter, r *http.Request) {
 	log.Printf("[Azure CNS] createCompartmentWithNCs")
 
+	// TODO: move this to windows specific file
 	var (
 		returnCode    int
 		returnMessage string
 		err           error
 		req           cns.CreateCompartmentWithNCsRequest
 		compartmentID int
+		acnBinaryName = "acn.exe" //./acn.exe
 	)
+
+	// Limit the number of NCs to 2
+	const maxNCsPerCompartment = 2
 
 	err = service.Listener.Decode(w, r, &req)
 	log.Request(service.Name, &req, err)
 
-	var compartmentID int
-	if _, err := os.Stat("./acn.exe"); err != nil {
-		if os.IsNotExist(err) {
-			log.Printf("[Azure CNS] Unable to find acn.exe. Cannot continue")
-			returnMessage = fmt.Sprintf("[Azure CNS] Error. Internal error managing compartment")
-			returnCode = UnexpectedError
+	if err != nil {
+		return
+	}
+
+	// TODO: Do I need to check service.state.Initialized = true? when is this set ?
+	switch r.Method {
+	case "POST":
+		// TODO: how many compartments can we create on the VM?
+		// TODO: Add a validation function which validates the params from the incoming request
+		// such as number of NCs per compartment and NC GUID
+
+		///////////////////////////////////////////////
+		// Move this to validation function
+		if len(req.NCIDs) <= 0 {
+			returnMessage = fmt.Sprintf("ERROR: No NCID specified in the request")
+			returnCode = InvalidParameter
+		} else if len(req.NCIDs) > maxNCsPerCompartment {
+			returnMessage = fmt.Sprintf("ERROR: Number of NCIDs specified exceeds max supported (%d)", maxNCsPerCompartment)
+			returnCode = InvalidParameter
 		}
-	} else {
-		//if len(req.NCIDs) == 1 {
-		args := []string{"/C", "acn.exe", "/operation", "create"}
-		log.Printf("[Azure CNS] Calling acn with args: %v", args)
-		c := exec.Command("cmd", args...)
-		if bytes, err := c.Output(); err == nil {
-			if compartmentID, err = strconv.Atoi(strings.TrimSpace(string(bytes))); err != nil {
-				log.Printf("[Azure CNS] Unable to parse output from acn.exe")
-				returnMessage = fmt.Sprintf("[Azure CNS] Error. Internal error managing compartment")
-				returnCode = UnexpectedError
-			} else {
-				returnMessage = "Successfully created network compartment"
-				log.Printf("[Azure CNS] Successfully created network compartment %d", compartmentID)
+		///////////////////////////////////////////////
 
-				log.Printf("[Azure CNS] POST received for createCompartmentWithNCs with NCID count: %d, NCIDs: %+v",
-					len(req.NCIDs), req.NCIDs)
-				for _, ncid := range req.NCIDs {
-					if err = service.setupNetworkAndEndpoints(ncid, compartmentID); err != nil {
-						log.Printf("[Azure CNS] createCompartmentWithNCs failed due to error: %+v", err)
-						returnCode = UnexpectedError
+		if _, err = os.Stat(acnBinaryName); err != nil {
+			log.Printf("[Azure CNS] ERROR: Unable to find %s needed for compartment creation", acnBinaryName)
+			returnMessage = fmt.Sprintf("ERROR: Unable to create the compartment")
+			returnCode = UnexpectedError
+		} else {
+			//TODO: Is parsing the output the best way to get this
+			args := []string{"/C", "acn.exe", "/operation", "create"}
+			log.Printf("[Azure CNS] Calling acn with args: %v", args)
+			c := exec.Command("cmd", args...)
+			if bytes, err := c.Output(); err == nil {
+				if compartmentID, err = strconv.Atoi(strings.TrimSpace(string(bytes))); err != nil {
+					log.Printf("[Azure CNS] Unable to parse output from acn.exe")
+					returnMessage = fmt.Sprintf("[Azure CNS] Error. Internal error managing compartment")
+					returnCode = UnexpectedError
+				} else {
+					for _, ncID := range req.NCIDs {
+						if err = service.setupNetworkAndEndpoints(ncID, compartmentID); err != nil {
+							returnMessage = fmt.Sprintf("Failed to setup network for NCID: %s due to error: %v",
+								ncID, err)
+							returnCode = UnexpectedError
+							break
+						} else {
+							log.Printf("[Azure CNS] Successfully created endpoint for NCID: %s ", ncID)
+						}
+					}
 
-						// delete the created ncids and delete the compartment
+					if err != nil {
+						// cleanup network, endpoint and delete compartment created as a part of this call.
+						// If the error is due to ep already connected to a different compartment you shouldn't
+						// delete those resources
+					} else {
+						returnMessage = fmt.Sprintf("Successfully created network compartment with ID: %d", compartmentID)
 					}
 				}
+			} else {
+				returnMessage = fmt.Sprintf("ERROR: Failed to create compartment due to error: %s", bytes)
+				returnCode = UnexpectedError
 			}
-		} else {
-			log.Printf("[Azure CNS] Failure with acn. error: %s", bytes)
-			returnMessage = fmt.Sprintf("[Azure CNS] Error. Internal error managing compartment")
-			returnCode = UnexpectedError
 		}
-		/*} else {
-			log.Printf("[Azure CNS] Invalid number of NCIDs: %d", len(req.NCIDs))
-			returnMessage = fmt.Sprintf("[Azure CNS] Invalid number of NCIDs: %d", len(req.NCIDs))
-			returnCode = InvalidParameter
-		}*/
+	default:
+		returnMessage = fmt.Sprintf("ERROR: createCompartmentWithNCs API expects a POST")
+		returnCode = UnexpectedError // TODO: change this with UnsupportedVerb
 	}
 
 	resp := cns.Response{
@@ -1142,7 +1174,7 @@ func (service *HTTPRestService) saveState() error {
 
 	// Skip if a store is not provided.
 	if service.store == nil {
-		log.Printf("[Azure CNS]  store not initialized.")
+		log.Printf("[Azure CNS] store not initialized.")
 		return nil
 	}
 
@@ -1150,9 +1182,9 @@ func (service *HTTPRestService) saveState() error {
 	service.state.TimeStamp = time.Now()
 	err := service.store.Write(storeKey, &service.state)
 	if err == nil {
-		log.Printf("[Azure CNS]  State saved successfully.\n")
+		log.Printf("[Azure CNS] Successfully saved the state")
 	} else {
-		log.Errorf("[Azure CNS]  Failed to save state., err:%v\n", err)
+		log.Errorf("[Azure CNS] Failed to save the state. err: %v", err)
 	}
 
 	return err
@@ -1164,7 +1196,7 @@ func (service *HTTPRestService) restoreState() error {
 
 	// Skip if a store is not provided.
 	if service.store == nil {
-		log.Printf("[Azure CNS]  store not initialized.")
+		log.Printf("[Azure CNS] store not initialized.")
 		return nil
 	}
 
@@ -1173,15 +1205,15 @@ func (service *HTTPRestService) restoreState() error {
 	if err != nil {
 		if err == store.ErrKeyNotFound {
 			// Nothing to restore.
-			log.Printf("[Azure CNS]  No state to restore.\n")
+			log.Printf("[Azure CNS] No state to restore")
 			return nil
 		}
 
-		log.Errorf("[Azure CNS]  Failed to restore state, err:%v\n", err)
+		log.Errorf("[Azure CNS] Failed to restore the state. err: %v", err)
 		return err
 	}
 
-	log.Printf("[Azure CNS]  Restored state, %+v\n", service.state)
+	log.Printf("[Azure CNS] Successfully restored the state: %+v", service.state)
 	return nil
 }
 
