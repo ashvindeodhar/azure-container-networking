@@ -14,7 +14,7 @@ const (
 	DetachContainerFromNetwork               = "/network/detachcontainerfromnetwork"
 	CreateCompartmentWithNCs                 = "/network/createcompartmentwithncs"
 	DeleteCompartmentWithNCs                 = "/network/deletecompartmentwithncs"
-	GetCompartmentNCMap                      = "/network/getcompartmentncmap"
+	GetCompartmentWithNC                     = "/network/getcompartmentwithnc"
 )
 
 // NetworkContainer Prefixes

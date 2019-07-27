@@ -23,6 +23,9 @@ const (
 	V2Prefix                    = "/v0.2"
 )
 
+// GetCompartmentWithNCRequestKey describes the key used to specify NC ID in the request
+const GetCompartmentWithNCRequestKey = "ncid"
+
 // SetEnvironmentRequest describes the Request to set the environment in CNS.
 type SetEnvironmentRequest struct {
 	Location    string
@@ -45,10 +48,10 @@ type DeleteCompartmentWithNCsRequest struct {
 	CompartmentID int
 }
 
-// GetCompartmentNCMapResponse describes response to get compartment-NC map request.
-type GetCompartmentNCMapResponse struct {
-	Response         Response
-	CompartmentNCmap map[int][]string
+// GetCompartmentWithNCResponse describes response to get compartmentID with NC request.
+type GetCompartmentWithNCResponse struct {
+	Response      Response
+	CompartmentID int
 }
 
 // OverlayConfiguration describes configuration for all the nodes that are part of overlay.

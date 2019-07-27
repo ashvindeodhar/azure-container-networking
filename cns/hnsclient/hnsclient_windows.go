@@ -3,10 +3,14 @@ package hnsclient
 import (
 	"encoding/json"
 	"fmt"
-	"log"
+	"os"
+	"os/exec"
+	"strconv"
 	"strings"
 
 	"github.com/Azure/azure-container-networking/cns"
+	"github.com/Azure/azure-container-networking/log"
+	//"github.com/Azure/azure-container-networking/cns"
 	"github.com/Microsoft/hcsshim"
 )
 
@@ -23,6 +27,10 @@ const (
 	// HNS network types
 	hnsL2Bridge = "l2bridge"
 	hnsL2Tunnel = "l2tunnel"
+
+	// Name of the executable to manage windows network compartment
+	// creation and deletion
+	acnBinaryName = "acn.exe"
 )
 
 // CreateHnsNetwork creates the HNS network with the provided configuration
@@ -152,4 +160,95 @@ func deleteHnsNetwork(networkName string) error {
 	}
 
 	return err
+}
+
+// CreateCompartment creates windows network compartment
+func CreateCompartment() (int, error) {
+	log.Printf("[Azure CNS] CreateCompartment")
+
+	var (
+		err           error
+		compartmentID int
+		bytes         []byte
+	)
+
+	if _, err = os.Stat(acnBinaryName); err != nil {
+		log.Printf("[Azure CNS] ERROR: Unable to find %s needed for compartment creation", acnBinaryName)
+		return compartmentID, fmt.Errorf("ERROR: Unable to create the compartment")
+	}
+
+	//TODO: Is parsing the output the best way to get this
+	args := []string{"/C", acnBinaryName, "/operation", "create"}
+	log.Printf("[Azure CNS] Calling acn with args: %v", args)
+	c := exec.Command("cmd", args...)
+	if bytes, err = c.Output(); err != nil {
+		return compartmentID, fmt.Errorf("ERROR: Failed to create compartment due to error: %s", bytes)
+	}
+
+	if compartmentID, err = strconv.Atoi(strings.TrimSpace(string(bytes))); err != nil {
+		log.Printf("[Azure CNS] Unable to parse output from acn.exe")
+		return compartmentID, fmt.Errorf("ERROR: Failed to create compartment due to error: %v", err)
+	}
+
+	return compartmentID, nil
+}
+
+// DeleteCompartment deletes windows network compartment
+func DeleteCompartment(compartmentID int) error {
+	log.Printf("[Azure CNS] DeleteCompartment")
+
+	var (
+		err   error
+		bytes []byte
+	)
+
+	if _, err = os.Stat(acnBinaryName); err != nil {
+		log.Printf("[Azure CNS] ERROR: Unable to find %s needed for compartment deletion", acnBinaryName)
+		return fmt.Errorf("ERROR: Unable to delete the compartment")
+	}
+
+	args := []string{"/C", acnBinaryName, "/operation", "delete", strconv.Itoa(compartmentID)}
+	log.Printf("[Azure CNS] Calling acn with args: %v", args)
+	c := exec.Command("cmd", args...)
+	if bytes, err = c.Output(); err != nil {
+		return fmt.Errorf("ERROR: Failed to create compartment due to error: %s", bytes)
+	}
+
+	log.Printf("[Azure CNS] Successfully deleted network compartment with ID: %d", compartmentID)
+
+	return nil
+}
+
+// CleanupEndpoint detaches endpoint from the host and deletes it
+func CleanupEndpoint(endpointName string) error {
+	log.Printf("[Azure CNS] CleanupEndpoint")
+	endpoint, err := hcsshim.GetHNSEndpointByName(endpointName)
+	if err != nil {
+		// If error is anything other than endpointNotFound return error
+		if _, endpointNotFound := err.(hcsshim.EndpointNotFoundError); !endpointNotFound {
+			return fmt.Errorf("ERROR: Unable to retrieve endpoint for deletion")
+		}
+
+		// If the endpoint is not found continue to delete the next endpoint
+		log.Printf("[Azure CNS] ERROR: Unable to find endpoint: %s for deletion", endpointName)
+		return nil
+	}
+
+	// Detach endpoint from the compartment
+	log.Printf("[Azure CNS] Detaching HNS endpoint: %+v", endpoint)
+	if err = endpoint.HostDetach(); err != nil {
+		return fmt.Errorf("ERROR: Failed to detach endpoint: %v due to error: %v", endpoint, err)
+	}
+
+	log.Printf("[Azure CNS] Successfully detached endpoint: %s", endpointName)
+
+	// Delete HNS endpoint
+	log.Printf("[Azure CNS] Deleting HNS endpoint: %+v", endpoint)
+	if _, err = hcsshim.HNSEndpointRequest("DELETE", endpoint.Id, ""); err != nil {
+		return fmt.Errorf("ERROR: Failed to delete endpoint: %v due to error: %v", endpoint, err)
+	}
+
+	log.Printf("[Azure CNS] Successfully deleted endpoint: %s", endpointName)
+
+	return nil
 }
