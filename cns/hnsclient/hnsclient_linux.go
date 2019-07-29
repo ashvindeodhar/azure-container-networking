@@ -10,23 +10,49 @@ import (
 // to create external switch on windows platform.
 // This is windows platform specific.
 func CreateDefaultExtNetwork(networkType string) error {
-	return fmt.Errorf("CreateDefaultExtNetwork shouldn't be called for linux platform")
+	return fmt.Errorf("[Azure CNS] CreateDefaultExtNetwork shouldn't be called for linux platform")
 }
 
 // DeleteDefaultExtNetwork deletes the default HNS network.
 // This is windows platform specific.
 func DeleteDefaultExtNetwork() error {
-	return fmt.Errorf("DeleteDefaultExtNetwork shouldn't be called for linux platform")
+	return fmt.Errorf("[Azure CNS] DeleteDefaultExtNetwork shouldn't be called for linux platform")
 }
 
 // CreateHnsNetwork creates the HNS network with the provided configuration
 // This is windows platform specific.
 func CreateHnsNetwork(nwConfig cns.CreateHnsNetworkRequest) error {
-	return fmt.Errorf("CreateHnsNetwork shouldn't be called for linux platform")
+	return fmt.Errorf("[Azure CNS] CreateHnsNetwork shouldn't be called for linux platform")
 }
 
 // DeleteHnsNetwork deletes the HNS network with the provided name.
 // This is windows platform specific.
 func DeleteHnsNetwork(networkName string) error {
-	return fmt.Errorf("DeleteHnsNetwork shouldn't be called for linux platform")
+	return fmt.Errorf("[Azure CNS] DeleteHnsNetwork shouldn't be called for linux platform")
+}
+
+// CreateCompartment creates windows network compartment
+// This is windows platform specific.
+func CreateCompartment() (int, error) {
+	return 0, fmt.Errorf("[Azure CNS] CreateCompartment shouldn't be called for linux platform")
+}
+
+// DeleteCompartment deletes windows network compartment
+// This is windows platform specific.
+func DeleteCompartment(compartmentID int) error {
+	return fmt.Errorf("[Azure CNS] DeleteCompartment shouldn't be called for linux platform")
+}
+
+// CleanupEndpoint detaches endpoint from the host and deletes it
+// This is windows platform specific.
+func CleanupEndpoint(endpointName string) error {
+	return fmt.Errorf("[Azure CNS] CleanupEndpoint shouldn't be called for linux platform")
+}
+
+// SetupNetworkAndEndpoints sets up network and endpoint for the specified network
+// container and windows network compartment ID
+// This is windows platform specific.
+func SetupNetworkAndEndpoints(
+	networkContainerInfo *cns.GetNetworkContainerResponse, ncID string, compartmentID int) error {
+	return fmt.Errorf("[Azure CNS] SetupNetworkAndEndpoints shouldn't be called for linux platform")
 }

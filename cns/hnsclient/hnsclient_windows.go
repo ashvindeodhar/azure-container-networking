@@ -3,6 +3,7 @@ package hnsclient
 import (
 	"encoding/json"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"strconv"
@@ -10,7 +11,6 @@ import (
 
 	"github.com/Azure/azure-container-networking/cns"
 	"github.com/Azure/azure-container-networking/log"
-	//"github.com/Azure/azure-container-networking/cns"
 	"github.com/Microsoft/hcsshim"
 )
 
@@ -31,6 +31,9 @@ const (
 	// Name of the executable to manage windows network compartment
 	// creation and deletion
 	acnBinaryName = "acn.exe"
+
+	// Azure DNS IP
+	AzureDNS = "168.63.129.16"
 )
 
 // CreateHnsNetwork creates the HNS network with the provided configuration
@@ -150,16 +153,26 @@ func createHnsNetwork(hnsNetwork *hcsshim.HNSNetwork) error {
 
 // deleteHnsNetwork calls HNS to delete the network with the provided name
 func deleteHnsNetwork(networkName string) error {
-	hnsNetwork, err := hcsshim.GetHNSNetworkByName(networkName)
-	if err == nil {
-		// Delete the HNS network.
-		var hnsResponse *hcsshim.HNSNetwork
-		log.Printf("[Azure CNS] HNSNetworkRequest DELETE id:%v", hnsNetwork.Id)
-		hnsResponse, err = hcsshim.HNSNetworkRequest("DELETE", hnsNetwork.Id, "")
-		log.Printf("[Azure CNS] HNSNetworkRequest DELETE response:%+v err:%v.", hnsResponse, err)
+	network, err := hcsshim.GetHNSNetworkByName(networkName)
+	if err != nil {
+		// If error is anything other than networkNotFound return error
+		if _, networkNotFound := err.(hcsshim.NetworkNotFoundError); !networkNotFound {
+			return fmt.Errorf("[Azure CNS] ERROR: Failed GetHNSNetworkByName due to error: %v", err)
+		}
+
+		log.Printf("[Azure CNS] Network: %s not found for deletion", networkName)
+
+		return nil
 	}
 
-	return err
+	// Delete HNS network.
+	log.Printf("[Azure CNS] Deleting HNS network: %+v", network)
+	if _, err = hcsshim.HNSNetworkRequest("DELETE", network.Id, ""); err != nil {
+		return fmt.Errorf("ERROR: Failed to delete network: %s due to error: %v",
+			networkName, err)
+	}
+
+	return nil
 }
 
 // CreateCompartment creates windows network compartment
@@ -249,6 +262,202 @@ func CleanupEndpoint(endpointName string) error {
 	}
 
 	log.Printf("[Azure CNS] Successfully deleted endpoint: %s", endpointName)
+
+	return nil
+}
+
+// SetupNetworkAndEndpoints sets up network and endpoint for the specified network
+// container and windows network compartment ID
+func SetupNetworkAndEndpoints(
+	networkContainerInfo *cns.GetNetworkContainerResponse, ncID string, compartmentID int) error {
+	var (
+		err      error
+		network  *hcsshim.HNSNetwork
+		endpoint *hcsshim.HNSEndpoint
+	)
+
+	if network, err = createNetworkWithNC(networkContainerInfo); err != nil {
+		return err
+	}
+
+	if endpoint, err = createEndpointWithNC(networkContainerInfo, ncID, network.Id); err != nil {
+		return err
+	}
+
+	if err = attachEndpointToCompartment(endpoint, compartmentID); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// CreateNetworkWithNC
+func createNetworkWithNC(
+	networkContainerInfo *cns.GetNetworkContainerResponse) (*hcsshim.HNSNetwork, error) {
+	var (
+		err          error
+		network      *hcsshim.HNSNetwork
+		subnetPrefix net.IPNet
+	)
+
+	//TODO: change to log.Errorf for errors in your code
+
+	// validate the multitenancy info
+	if networkContainerInfo.MultiTenancyInfo.EncapType != "Vlan" {
+		return nil, fmt.Errorf("Invalid multitenancy Encap type: %s. Expecting Vlan",
+			networkContainerInfo.MultiTenancyInfo.EncapType)
+	}
+
+	if networkContainerInfo.MultiTenancyInfo.ID == 0 {
+		return nil, fmt.Errorf("Invalid multitenancy vlan id: %d", networkContainerInfo.MultiTenancyInfo.ID)
+	}
+
+	ipAddress := net.ParseIP(networkContainerInfo.IPConfiguration.IPSubnet.IPAddress)
+	if ipAddress.To4() != nil {
+		subnetPrefix = net.IPNet{
+			IP:   ipAddress,
+			Mask: net.CIDRMask(int(networkContainerInfo.IPConfiguration.IPSubnet.PrefixLength), 32)}
+	} else {
+		subnetPrefix = net.IPNet{
+			IP:   ipAddress,
+			Mask: net.CIDRMask(int(networkContainerInfo.IPConfiguration.IPSubnet.PrefixLength), 128)}
+	}
+
+	subnetPrefix.IP = subnetPrefix.IP.Mask(subnetPrefix.Mask)
+
+	//TODO: check with SQLMI - how / what ACLs are needed on the network / endpoint. How do they intend to specify that?
+	// azure-cns.config?
+
+	//TODO: use subnet name in the network name
+	/*
+		networkName = strings.Replace(subnet.String(), ".", "-", -1)
+					networkName = strings.Replace(networkName, "/", "_", -1)
+					networkName = fmt.Sprintf("%s-vlan%v-%v", nwCfg.Name, cnsNetworkConfig.MultiTenancyInfo.ID, networkName)
+	*/
+
+	networkName := fmt.Sprintf("azure-vlanid%v", networkContainerInfo.MultiTenancyInfo.ID)
+
+	// Check if the network already exists
+	if network, err = hcsshim.GetHNSNetworkByName(networkName); err != nil {
+		// If error is anything other than networkNotFound return error
+		if _, networkNotFound := err.(hcsshim.NetworkNotFoundError); !networkNotFound {
+			return nil, fmt.Errorf("[Azure CNS] ERROR: Failed GetHNSNetworkByName due to error: %v", err)
+		}
+
+		// Create the network.
+		log.Printf("[Azure CNS] Creating network %s", networkName)
+		dnsServerList := strings.Join(networkContainerInfo.IPConfiguration.DNSServers, ", ")
+		dnsServerList += ", " + AzureDNS
+
+		network = &hcsshim.HNSNetwork{
+			Name:          networkName,
+			DNSServerList: dnsServerList,
+			Type:          hnsL2Bridge,
+		}
+
+		// Set the network VLAN policy
+		vlanPolicy := hcsshim.VlanPolicy{
+			Type: "VLAN",
+		}
+		vlanPolicy.VLAN = uint(networkContainerInfo.MultiTenancyInfo.ID)
+		serializedVlanPolicy, _ := json.Marshal(vlanPolicy)
+		network.Policies = append(network.Policies, serializedVlanPolicy)
+
+		// Populate subnet
+		subnet := hcsshim.Subnet{
+			AddressPrefix:  subnetPrefix.String(),
+			GatewayAddress: networkContainerInfo.IPConfiguration.GatewayIPAddress,
+		}
+		network.Subnets = append(network.Subnets, subnet)
+
+		createNetworkRequest, err := json.Marshal(network)
+		if err != nil {
+			return nil, fmt.Errorf("[Azure CNS] Failed to marshal network %s due to error: %v",
+				networkName, err)
+		}
+
+		// Create HNS network.
+		log.Printf("[Azure CNS] Creating HNS network: %+v", string(createNetworkRequest))
+		if network, err = hcsshim.HNSNetworkRequest("POST", "", string(createNetworkRequest)); err != nil {
+			return nil, fmt.Errorf("[Azure CNS] Failed to create HNS network: %s due to error: %v", networkName, err)
+		}
+
+		log.Printf("[Azure CNS] Successfully created network: %+v", network)
+	} else {
+		log.Printf("[Azure CNS] Network is already present. Network: %+v", network)
+	}
+
+	return network, nil
+}
+
+func createEndpointWithNC(
+	networkContainerInfo *cns.GetNetworkContainerResponse,
+	ncID string,
+	networkID string) (*hcsshim.HNSEndpoint, error) {
+	var (
+		err      error
+		endpoint *hcsshim.HNSEndpoint
+	)
+
+	endpointName := fmt.Sprintf("%s", ncID)
+
+	// Check if the endpoint already exists
+	if endpoint, err = hcsshim.GetHNSEndpointByName(endpointName); err != nil {
+		// If error is anything other than endpointNotFound return error
+		if _, endpointNotFound := err.(hcsshim.EndpointNotFoundError); !endpointNotFound {
+			return nil, fmt.Errorf("[Azure CNS] ERROR: Failed GetHNSEndpointByName due to error: %v", err)
+		}
+
+		//TODO: check if there is any update to the policy code in CNI
+		var jsonPolicies []json.RawMessage
+		outBoundNatPolicy := hcsshim.OutboundNatPolicy{}
+		outBoundNatPolicy.Policy.Type = hcsshim.OutboundNat
+		for _, ipAddress := range networkContainerInfo.CnetAddressSpace {
+			outBoundNatPolicy.Exceptions = append(outBoundNatPolicy.Exceptions,
+				ipAddress.IPAddress+"/"+strconv.Itoa(int(ipAddress.PrefixLength)))
+		}
+
+		if outBoundNatPolicy.Exceptions != nil {
+			serializedOutboundNatPolicy, _ := json.Marshal(outBoundNatPolicy)
+			jsonPolicies = append(jsonPolicies, serializedOutboundNatPolicy)
+		}
+
+		dnsServerList := strings.Join(networkContainerInfo.IPConfiguration.DNSServers, ", ")
+		dnsServerList += ", " + AzureDNS
+		endpoint = &hcsshim.HNSEndpoint{
+			Name:           endpointName,
+			IPAddress:      net.ParseIP(networkContainerInfo.IPConfiguration.IPSubnet.IPAddress),
+			VirtualNetwork: networkID,
+			DNSServerList:  dnsServerList,
+			Policies:       jsonPolicies,
+		}
+
+		createEndpointRequest, err := json.Marshal(endpoint)
+		if err != nil {
+			return nil, fmt.Errorf("[Azure CNS] Failed to marshal endpoint %s err:%v", endpointName, err)
+		}
+
+		// Create HNS endpoint.
+		log.Printf("[Azure CNS] Creating HNS endpoint: %+v", string(createEndpointRequest))
+		if endpoint, err = hcsshim.HNSEndpointRequest("POST", "", string(createEndpointRequest)); err != nil {
+			return nil, fmt.Errorf("[Azure CNS] Failed to create HNS endpoint: %s error: %v", endpointName, err)
+		}
+
+		log.Printf("[Azure CNS] Successfully created endpoint: %+v", endpoint)
+	} else {
+		log.Printf("[Azure CNS] Endpoint is already present. Endpoint: %+v", endpoint)
+	}
+
+	return endpoint, nil
+}
+
+func attachEndpointToCompartment(endpoint *hcsshim.HNSEndpoint, compartmentID int) error {
+	if err := endpoint.HostAttach(uint16(compartmentID)); err != nil {
+		return fmt.Errorf("[Azure CNS] Failed to attach endpoint: %s to compartment with ID: %d due to error: %+v",
+			endpoint.Name, compartmentID, err)
+	}
+
+	log.Printf("[Azure CNS] Successfully attached endpoint: %s to compartment with ID: %d", endpoint.Name, compartmentID)
 
 	return nil
 }
