@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/Azure/azure-container-networking/cns"
 	"github.com/Azure/azure-container-networking/log"
@@ -41,6 +42,9 @@ const (
 	// Maximum number of Network containers allowed in the network compartment
 	MaxNCsPerCompartment = 2
 )
+
+// Lock to create, delete compartment
+var lock = &sync.Mutex{}
 
 // CreateHnsNetwork creates the HNS network with the provided configuration
 func CreateHnsNetwork(nwConfig cns.CreateHnsNetworkRequest) error {
@@ -200,8 +204,12 @@ func CreateCompartment() (int, error) {
 
 	args := []string{"/C", compartmentManagementBinary, "/operation", "create"}
 	log.Printf("[Azure CNS] Creating compartment: %v", args)
-	c := exec.Command("cmd", args...)
-	if bytes, err = c.Output(); err != nil {
+
+	lock.Lock()
+	defer lock.Unlock()
+
+	cmd := exec.Command("cmd", args...)
+	if bytes, err = cmd.Output(); err != nil {
 		return compartmentID, fmt.Errorf("ERROR: Failed to create compartment due to error: %s", bytes)
 	}
 
@@ -230,8 +238,12 @@ func DeleteCompartment(compartmentID int) error {
 
 	args := []string{"/C", compartmentManagementBinary, "/operation", "delete", strconv.Itoa(compartmentID)}
 	log.Printf("[Azure CNS] Deleting compartment: %v", args)
-	c := exec.Command("cmd", args...)
-	if bytes, err = c.Output(); err != nil {
+
+	lock.Lock()
+	defer lock.Unlock()
+
+	cmd := exec.Command("cmd", args...)
+	if bytes, err = cmd.Output(); err != nil {
 		return fmt.Errorf("ERROR: Failed to create compartment due to error: %s", bytes)
 	}
 
@@ -299,6 +311,7 @@ func SetupNetworkAndEndpoints(
 	return nil
 }
 
+// Get the network name for the specified NC
 func GetNetworkNameForNC(networkContainerInfo *cns.GetNetworkContainerResponse) (string, error) {
 	if networkContainerInfo.MultiTenancyInfo.EncapType != "Vlan" {
 		return "", fmt.Errorf("Invalid multitenancy Encap type: %s. Expecting VLAN",
@@ -318,6 +331,7 @@ func GetNetworkNameForNC(networkContainerInfo *cns.GetNetworkContainerResponse) 
 	return networkName, nil
 }
 
+// Check if the network exists for the specified NC
 func CheckNetworkExistsForNC(networkContainerInfo *cns.GetNetworkContainerResponse) (bool, error) {
 	// Get the network name for the NC
 	networkName, err := GetNetworkNameForNC(networkContainerInfo)
@@ -338,7 +352,7 @@ func CheckNetworkExistsForNC(networkContainerInfo *cns.GetNetworkContainerRespon
 	return true, nil
 }
 
-// CreateNetworkWithNC
+// Create network to hold the endpoint for the specified NC
 func createNetworkWithNC(
 	networkContainerInfo *cns.GetNetworkContainerResponse) (*hcsshim.HNSNetwork, error) {
 	var (
@@ -347,8 +361,6 @@ func createNetworkWithNC(
 		network      *hcsshim.HNSNetwork
 		subnetPrefix net.IPNet
 	)
-
-	//TODO: change to log.Errorf for errors in your code
 
 	// validate the multitenancy info
 	if networkContainerInfo.MultiTenancyInfo.EncapType != "Vlan" {
@@ -430,6 +442,7 @@ func createNetworkWithNC(
 	return network, nil
 }
 
+// Create endpoint for the specified NC
 func createEndpointWithNC(
 	networkContainerInfo *cns.GetNetworkContainerResponse,
 	ncID string,
@@ -447,7 +460,6 @@ func createEndpointWithNC(
 			return nil, fmt.Errorf("[Azure CNS] ERROR: Failed GetHNSEndpointByName due to error: %v", err)
 		}
 
-		//TODO: check if there is any update to the policy code in CNI
 		var jsonPolicies []json.RawMessage
 		outBoundNatPolicy := hcsshim.OutboundNatPolicy{}
 		outBoundNatPolicy.Policy.Type = hcsshim.OutboundNat
@@ -490,6 +502,7 @@ func createEndpointWithNC(
 	return endpoint, nil
 }
 
+// Attach endpoint to the given compartment
 func attachEndpointToCompartment(endpoint *hcsshim.HNSEndpoint, compartmentID int) error {
 	if err := endpoint.HostAttach(uint16(compartmentID)); err != nil {
 		return fmt.Errorf("[Azure CNS] Failed to attach endpoint: %s to compartment with ID: %d due to error: %+v",
