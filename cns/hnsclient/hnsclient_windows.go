@@ -30,10 +30,16 @@ const (
 
 	// Name of the executable to manage windows network compartment
 	// creation and deletion
-	acnBinaryName = "acn.exe"
+	compartmentManagementBinary = "CNS-CompartmentManagement.exe"
 
 	// Azure DNS IP
 	AzureDNS = "168.63.129.16"
+
+	// Default network compartment ID
+	DefaultNetworkCompartmentID = 1
+
+	// Maximum number of Network containers allowed in the network compartment
+	MaxNCsPerCompartment = 2
 )
 
 // CreateHnsNetwork creates the HNS network with the provided configuration
@@ -143,12 +149,13 @@ func createHnsNetwork(hnsNetwork *hcsshim.HNSNetwork) error {
 	}
 	hnsRequest := string(buffer)
 
-	// Create the HNS network.
-	log.Printf("[Azure CNS] HNSNetworkRequest POST request:%+v", hnsRequest)
-	hnsResponse, err := hcsshim.HNSNetworkRequest("POST", "", hnsRequest)
-	log.Printf("[Azure CNS] HNSNetworkRequest POST response:%+v err:%v.", hnsResponse, err)
+	// Create HNS network.
+	log.Printf("[Azure CNS] Creating HNS network: %+v", hnsRequest)
+	if _, err := hcsshim.HNSNetworkRequest("POST", "", hnsRequest); err != nil {
+		return fmt.Errorf("ERROR: Failed to create network due to error: %v", err)
+	}
 
-	return err
+	return nil
 }
 
 // deleteHnsNetwork calls HNS to delete the network with the provided name
@@ -160,7 +167,7 @@ func deleteHnsNetwork(networkName string) error {
 			return fmt.Errorf("[Azure CNS] ERROR: Failed GetHNSNetworkByName due to error: %v", err)
 		}
 
-		log.Printf("[Azure CNS] Network: %s not found for deletion", networkName)
+		log.Errorf("[Azure CNS] Network: %s not found for deletion", networkName)
 
 		return nil
 	}
@@ -185,21 +192,21 @@ func CreateCompartment() (int, error) {
 		bytes         []byte
 	)
 
-	if _, err = os.Stat(acnBinaryName); err != nil {
-		log.Printf("[Azure CNS] ERROR: Unable to find %s needed for compartment creation", acnBinaryName)
+	if _, err = os.Stat(compartmentManagementBinary); err != nil {
+		log.Errorf("[Azure CNS] ERROR: Unable to find %s needed for compartment creation",
+			compartmentManagementBinary)
 		return compartmentID, fmt.Errorf("ERROR: Unable to create the compartment")
 	}
 
-	//TODO: Is parsing the output the best way to get this
-	args := []string{"/C", acnBinaryName, "/operation", "create"}
-	log.Printf("[Azure CNS] Calling acn with args: %v", args)
+	args := []string{"/C", compartmentManagementBinary, "/operation", "create"}
+	log.Printf("[Azure CNS] Creating compartment: %v", args)
 	c := exec.Command("cmd", args...)
 	if bytes, err = c.Output(); err != nil {
 		return compartmentID, fmt.Errorf("ERROR: Failed to create compartment due to error: %s", bytes)
 	}
 
 	if compartmentID, err = strconv.Atoi(strings.TrimSpace(string(bytes))); err != nil {
-		log.Printf("[Azure CNS] Unable to parse output from acn.exe")
+		log.Errorf("[Azure CNS] Unable to parse output from %s", compartmentManagementBinary)
 		return compartmentID, fmt.Errorf("ERROR: Failed to create compartment due to error: %v", err)
 	}
 
@@ -215,13 +222,14 @@ func DeleteCompartment(compartmentID int) error {
 		bytes []byte
 	)
 
-	if _, err = os.Stat(acnBinaryName); err != nil {
-		log.Printf("[Azure CNS] ERROR: Unable to find %s needed for compartment deletion", acnBinaryName)
+	if _, err = os.Stat(compartmentManagementBinary); err != nil {
+		log.Printf("[Azure CNS] ERROR: Unable to find %s needed for compartment deletion",
+			compartmentManagementBinary)
 		return fmt.Errorf("ERROR: Unable to delete the compartment")
 	}
 
-	args := []string{"/C", acnBinaryName, "/operation", "delete", strconv.Itoa(compartmentID)}
-	log.Printf("[Azure CNS] Calling acn with args: %v", args)
+	args := []string{"/C", compartmentManagementBinary, "/operation", "delete", strconv.Itoa(compartmentID)}
+	log.Printf("[Azure CNS] Deleting compartment: %v", args)
 	c := exec.Command("cmd", args...)
 	if bytes, err = c.Output(); err != nil {
 		return fmt.Errorf("ERROR: Failed to create compartment due to error: %s", bytes)
@@ -291,11 +299,51 @@ func SetupNetworkAndEndpoints(
 	return nil
 }
 
+func GetNetworkNameForNC(networkContainerInfo *cns.GetNetworkContainerResponse) (string, error) {
+	if networkContainerInfo.MultiTenancyInfo.EncapType != "Vlan" {
+		return "", fmt.Errorf("Invalid multitenancy Encap type: %s. Expecting VLAN",
+			networkContainerInfo.MultiTenancyInfo.EncapType)
+	}
+
+	if networkContainerInfo.MultiTenancyInfo.ID == 0 {
+		return "", fmt.Errorf("Invalid multitenancy VLAN ID: %d", networkContainerInfo.MultiTenancyInfo.ID)
+	}
+
+	// network name is of the format azure-vlan1-192-168-0-0_24
+	subnet := net.ParseIP(networkContainerInfo.IPConfiguration.IPSubnet.IPAddress)
+	subnet = subnet.Mask(net.CIDRMask(int(networkContainerInfo.IPConfiguration.IPSubnet.PrefixLength), 32))
+	networkName := strings.Replace(subnet.String(), ".", "-", -1)
+	networkName += "_" + strconv.Itoa(int(networkContainerInfo.IPConfiguration.IPSubnet.PrefixLength))
+	networkName = fmt.Sprintf("azure-vlan%v-%v", networkContainerInfo.MultiTenancyInfo.ID, networkName)
+	return networkName, nil
+}
+
+func CheckNetworkExistsForNC(networkContainerInfo *cns.GetNetworkContainerResponse) (bool, error) {
+	// Get the network name for the NC
+	networkName, err := GetNetworkNameForNC(networkContainerInfo)
+	if err != nil {
+		return false, err
+	}
+
+	// Check if the network already exists
+	if _, err = hcsshim.GetHNSNetworkByName(networkName); err != nil {
+		// If error is anything other than networkNotFound return error
+		if _, networkNotFound := err.(hcsshim.NetworkNotFoundError); !networkNotFound {
+			return false, fmt.Errorf("[Azure CNS] ERROR: Failed GetHNSNetworkByName due to error: %v", err)
+		}
+
+		return false, nil
+	}
+
+	return true, nil
+}
+
 // CreateNetworkWithNC
 func createNetworkWithNC(
 	networkContainerInfo *cns.GetNetworkContainerResponse) (*hcsshim.HNSNetwork, error) {
 	var (
 		err          error
+		networkName  string
 		network      *hcsshim.HNSNetwork
 		subnetPrefix net.IPNet
 	)
@@ -304,12 +352,12 @@ func createNetworkWithNC(
 
 	// validate the multitenancy info
 	if networkContainerInfo.MultiTenancyInfo.EncapType != "Vlan" {
-		return nil, fmt.Errorf("Invalid multitenancy Encap type: %s. Expecting Vlan",
+		return nil, fmt.Errorf("Invalid multitenancy Encap type: %s. Expecting VLAN",
 			networkContainerInfo.MultiTenancyInfo.EncapType)
 	}
 
 	if networkContainerInfo.MultiTenancyInfo.ID == 0 {
-		return nil, fmt.Errorf("Invalid multitenancy vlan id: %d", networkContainerInfo.MultiTenancyInfo.ID)
+		return nil, fmt.Errorf("Invalid multitenancy VLAN ID: %d", networkContainerInfo.MultiTenancyInfo.ID)
 	}
 
 	ipAddress := net.ParseIP(networkContainerInfo.IPConfiguration.IPSubnet.IPAddress)
@@ -325,17 +373,9 @@ func createNetworkWithNC(
 
 	subnetPrefix.IP = subnetPrefix.IP.Mask(subnetPrefix.Mask)
 
-	//TODO: check with SQLMI - how / what ACLs are needed on the network / endpoint. How do they intend to specify that?
-	// azure-cns.config?
-
-	//TODO: use subnet name in the network name
-	/*
-		networkName = strings.Replace(subnet.String(), ".", "-", -1)
-					networkName = strings.Replace(networkName, "/", "_", -1)
-					networkName = fmt.Sprintf("%s-vlan%v-%v", nwCfg.Name, cnsNetworkConfig.MultiTenancyInfo.ID, networkName)
-	*/
-
-	networkName := fmt.Sprintf("azure-vlanid%v", networkContainerInfo.MultiTenancyInfo.ID)
+	if networkName, err = GetNetworkNameForNC(networkContainerInfo); err != nil {
+		return nil, fmt.Errorf("[Azure CNS] ERROR: Failed to get network name due to error: %v", err)
+	}
 
 	// Check if the network already exists
 	if network, err = hcsshim.GetHNSNetworkByName(networkName); err != nil {
@@ -395,11 +435,10 @@ func createEndpointWithNC(
 	ncID string,
 	networkID string) (*hcsshim.HNSEndpoint, error) {
 	var (
-		err      error
-		endpoint *hcsshim.HNSEndpoint
+		err          error
+		endpoint     *hcsshim.HNSEndpoint
+		endpointName = ncID
 	)
-
-	endpointName := fmt.Sprintf("%s", ncID)
 
 	// Check if the endpoint already exists
 	if endpoint, err = hcsshim.GetHNSEndpointByName(endpointName); err != nil {

@@ -6,6 +6,14 @@ import (
 	"github.com/Azure/azure-container-networking/cns"
 )
 
+const (
+	// Default network compartment ID
+	DefaultNetworkCompartmentID = 1
+
+	// Maximum number of Network containers allowed in the network compartment
+	MaxNCsPerCompartment = 0
+)
+
 // CreateDefaultExtNetwork creates the default ext network (if it doesn't exist already)
 // to create external switch on windows platform.
 // This is windows platform specific.
@@ -55,4 +63,16 @@ func CleanupEndpoint(endpointName string) error {
 func SetupNetworkAndEndpoints(
 	networkContainerInfo *cns.GetNetworkContainerResponse, ncID string, compartmentID int) error {
 	return fmt.Errorf("[Azure CNS] SetupNetworkAndEndpoints shouldn't be called for linux platform")
+}
+
+// GetNetworkNameForNC gets the name of the network for the given NC
+// This is windows platform specific.
+func GetNetworkNameForNC(networkContainerInfo *cns.GetNetworkContainerResponse) (string, error) {
+	return "", fmt.Errorf("[Azure CNS] GetNetworkNameForNC shouldn't be called for linux platform")
+}
+
+// CheckNetworkExistsForNC checks if the network exists for the given NC
+// This is windows platform specific.
+func CheckNetworkExistsForNC(networkContainerInfo *cns.GetNetworkContainerResponse) (bool, error) {
+	return false, fmt.Errorf("[Azure CNS] CheckNetworkExistsForNC shouldn't be called for linux platform")
 }
