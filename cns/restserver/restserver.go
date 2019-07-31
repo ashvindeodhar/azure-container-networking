@@ -1828,7 +1828,7 @@ func (service *HTTPRestService) createCompartmentWithNCs(w http.ResponseWriter, 
 				returnCode = InvalidParameter
 			} else if len(req.NCIDs) > hnsclient.MaxNCsPerCompartment {
 				returnMessage = fmt.Sprintf("ERROR: Number of NCIDs specified (%d) exceeds max supported (%d)",
-					req.NCIDs, hnsclient.MaxNCsPerCompartment)
+					len(req.NCIDs), hnsclient.MaxNCsPerCompartment)
 				returnCode = InvalidParameter
 			}
 
