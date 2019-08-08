@@ -23,35 +23,10 @@ const (
 	V2Prefix                    = "/v0.2"
 )
 
-// GetCompartmentWithNCRequestKey describes the key used to specify NC ID in the request
-const GetCompartmentWithNCRequestKey = "ncid"
-
 // SetEnvironmentRequest describes the Request to set the environment in CNS.
 type SetEnvironmentRequest struct {
 	Location    string
 	NetworkType string
-}
-
-// CreateCompartmentWithNCsRequest describes request to create windows network compartment with NCs.
-type CreateCompartmentWithNCsRequest struct {
-	NCIDs []string
-}
-
-// CreateCompartmentWithNCsResponse describes response to create windows network compartment with NCs.
-type CreateCompartmentWithNCsResponse struct {
-	Response      Response
-	CompartmentID int
-}
-
-// DeleteCompartmentWithNCsRequest describes request to delete windows network compartment with NCs.
-type DeleteCompartmentWithNCsRequest struct {
-	CompartmentID int
-}
-
-// GetCompartmentWithNCResponse describes response to get compartmentID with NC request.
-type GetCompartmentWithNCResponse struct {
-	Response      Response
-	CompartmentID int
 }
 
 // OverlayConfiguration describes configuration for all the nodes that are part of overlay.

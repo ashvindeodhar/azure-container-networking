@@ -70,9 +70,3 @@ func SetupNetworkAndEndpoints(
 func GetNetworkNameForNC(networkContainerInfo *cns.GetNetworkContainerResponse) (string, error) {
 	return "", fmt.Errorf("[Azure CNS] GetNetworkNameForNC shouldn't be called for linux platform")
 }
-
-// CheckNetworkExistsForNC checks if the network exists for the given NC
-// This is windows platform specific.
-func CheckNetworkExistsForNC(networkContainerInfo *cns.GetNetworkContainerResponse) (bool, error) {
-	return false, fmt.Errorf("[Azure CNS] CheckNetworkExistsForNC shouldn't be called for linux platform")
-}

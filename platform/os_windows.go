@@ -108,7 +108,7 @@ func ExecuteCommand(command string) (string, error) {
 
 	err := cmd.Run()
 	if err != nil {
-		return "", fmt.Errorf("%s:%s", err.Error(), stderr.String())
+		return "", fmt.Errorf("%s : %s", err.Error(), stderr.String())
 	}
 
 	return out.String(), nil

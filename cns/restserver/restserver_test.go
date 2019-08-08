@@ -8,16 +8,19 @@ import (
 	"encoding/json"
 	"encoding/xml"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/Azure/azure-container-networking/cns"
 	"github.com/Azure/azure-container-networking/cns/common"
-	"github.com/Azure/azure-container-networking/cns/imdsclient"
 	acncommon "github.com/Azure/azure-container-networking/common"
+	"github.com/Azure/azure-container-networking/platform"
+	"github.com/Azure/azure-container-networking/store"
 )
 
 type IPAddress struct {
@@ -84,6 +87,19 @@ func TestMain(m *testing.M) {
 	var config common.ServiceConfig
 	var err error
 
+	err = acncommon.CreateDirectory(platform.CNMRuntimePath)
+	if err != nil {
+		fmt.Printf("Failed to create File Store directory Error:%v", err.Error())
+		os.Exit(1)
+	}
+
+	// Create the key value store.
+	config.Store, err = store.NewJsonFileStore("azure-cns.json")
+	if err != nil {
+		fmt.Printf("Failed to create store: %v\n", err)
+		os.Exit(1)
+	}
+
 	// Create the service.
 	service, err = NewHTTPRestService(&config)
 	if err != nil {
@@ -92,12 +108,12 @@ func TestMain(m *testing.M) {
 	}
 
 	// Configure test mode.
-	service.(*httpRestService).Name = "cns-test-server"
-	service.(*httpRestService).imdsClient.HostQueryURL = imdsclient.HostQueryURL
-	service.(*httpRestService).imdsClient.HostQueryURLForProgrammedVersion = imdsclient.HostQueryURLForProgrammedVersion
+	service.(*HTTPRestService).Name = "cns-test-server"
+	//service.(*HTTPRestService).imdsClient.HostQueryURL = imdsclient.HostQueryURL
+	//service.(*HTTPRestService).imdsClient.HostQueryURLForProgrammedVersion = imdsclient.HostQueryURLForProgrammedVersion
 	// Following HostQueryURL and HostQueryURLForProgrammedVersion are only for mock environment.
-	// service.(*httpRestService).imdsClient.HostQueryURL = "http://localhost:9000/getInterface"
-	// service.(*httpRestService).imdsClient.HostQueryURLForProgrammedVersion = "http://localhost:9000/machine/plugins/?comp=nmagent&type=NetworkManagement/interfaces/%s/networkContainers/%s/authenticationToken/%s/api-version/%s"
+	//service.(*httpRestService).imdsClient.HostQueryURL = "http://localhost:9000/getInterface"
+	//service.(*httpRestService).imdsClient.HostQueryURLForProgrammedVersion = "http://localhost:9000/machine/plugins/?comp=nmagent&type=NetworkManagement/interfaces/%s/networkContainers/%s/authenticationToken/%s/api-version/%s"
 
 	// Start the service.
 	err = service.Start(&config)
@@ -107,7 +123,7 @@ func TestMain(m *testing.M) {
 	}
 
 	// Get the internal http mux as test hook.
-	mux = service.(*httpRestService).Listener.GetMux()
+	mux = service.(*HTTPRestService).Listener.GetMux()
 
 	// Setup mock nmagent server
 	u, err := url.Parse("tcp://localhost:9000")
@@ -380,28 +396,10 @@ func setOrchestratorType(t *testing.T, orchestratorType string) error {
 	return nil
 }
 
-func creatOrUpdateNetworkContainerWithName(t *testing.T, name string, ip string, containerType string) error {
+func creatOrUpdateNetworkContainerWithName(
+	t *testing.T, createNetworkContainerRequest *cns.CreateNetworkContainerRequest) error {
 	var body bytes.Buffer
-	var ipConfig cns.IPConfiguration
-	ipConfig.DNSServers = []string{"8.8.8.8", "8.8.4.4"}
-	ipConfig.GatewayIPAddress = "11.0.0.1"
-	var ipSubnet cns.IPSubnet
-	ipSubnet.IPAddress = ip
-	ipSubnet.PrefixLength = 24
-	ipConfig.IPSubnet = ipSubnet
-	podInfo := cns.KubernetesPodInfo{PodName: "testpod", PodNamespace: "testpodnamespace"}
-	context, _ := json.Marshal(podInfo)
-
-	info := &cns.CreateNetworkContainerRequest{
-		Version:                    "0.1",
-		NetworkContainerType:       containerType,
-		NetworkContainerid:         name,
-		OrchestratorContext:        context,
-		IPConfiguration:            ipConfig,
-		PrimaryInterfaceIdentifier: "11.0.0.7",
-	}
-
-	json.NewEncoder(&body).Encode(info)
+	json.NewEncoder(&body).Encode(createNetworkContainerRequest)
 
 	req, err := http.NewRequest(http.MethodPost, cns.CreateOrUpdateNetworkContainer, &body)
 	if err != nil {
@@ -412,7 +410,6 @@ func creatOrUpdateNetworkContainerWithName(t *testing.T, name string, ip string,
 	mux.ServeHTTP(w, req)
 	var resp cns.CreateNetworkContainerResponse
 	err = decodeResponse(w, &resp)
-	fmt.Printf("Raw response: %+v", w.Body)
 
 	if err != nil || resp.Response.ReturnCode != 0 {
 		t.Errorf("CreateNetworkContainerRequest failed with response %+v Err:%+v", resp, err)
@@ -422,33 +419,6 @@ func creatOrUpdateNetworkContainerWithName(t *testing.T, name string, ip string,
 	}
 
 	fmt.Printf("CreateNetworkContainerRequest succeeded with response %+v\n", resp)
-	return nil
-}
-
-func deleteNetworkAdapterWithName(t *testing.T, name string) error {
-	var body bytes.Buffer
-	var resp cns.DeleteNetworkContainerResponse
-
-	deleteInfo := &cns.DeleteNetworkContainerRequest{
-		NetworkContainerid: "ethWebApp",
-	}
-
-	json.NewEncoder(&body).Encode(deleteInfo)
-	req, err := http.NewRequest(http.MethodPost, cns.DeleteNetworkContainer, &body)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, req)
-
-	err = decodeResponse(w, &resp)
-	if err != nil || resp.Response.ReturnCode != 0 {
-		t.Errorf("DeleteNetworkContainer failed with response %+v Err:%+v", resp, err)
-		t.Fatal(err)
-	}
-
-	fmt.Printf("DeleteNetworkContainer succeded with response %+v\n", resp)
 	return nil
 }
 
@@ -578,22 +548,50 @@ func TestCreateNetworkContainer(t *testing.T) {
 
 	setEnv(t)
 
-	err := creatOrUpdateNetworkContainerWithName(t, "ethWebApp", "11.0.0.5", "WebApps")
-	if err != nil {
-		t.Errorf("creatOrUpdateWebAppContainerWithName failed Err:%+v", err)
+	orchestratorContext, _ := json.Marshal(
+		cns.KubernetesPodInfo{PodName: "testpod", PodNamespace: "testpodnamespace"})
+
+	// Setup NC: ethWebApp
+	createNetworkContainerRequest := &cns.CreateNetworkContainerRequest{
+		Version:                    "0.1",
+		NetworkContainerid:         "ethWebApp",
+		NetworkContainerType:       "WebApps",
+		PrimaryInterfaceIdentifier: "11.0.0.7",
+		OrchestratorContext:        orchestratorContext,
+		IPConfiguration: cns.IPConfiguration{
+			DNSServers:       []string{"8.8.8.8", "8.8.4.4"},
+			GatewayIPAddress: "11.0.0.1",
+			IPSubnet:         cns.IPSubnet{IPAddress: "11.0.0.5", PrefixLength: 24},
+		},
+	}
+
+	if err := creatOrUpdateNetworkContainerWithName(t, createNetworkContainerRequest); err != nil {
+		t.Errorf("creatOrUpdateNetworkContainerWithName failed with error: %v", err)
 		t.Fatal(err)
 	}
 
-	err = creatOrUpdateNetworkContainerWithName(t, "ethWebApp", "11.0.0.6", "WebApps")
-	if err != nil {
-		t.Errorf("Updating interface failed Err:%+v", err)
+	// Setup NC: ethWebApp
+	createNetworkContainerRequest = &cns.CreateNetworkContainerRequest{
+		Version:                    "0.1",
+		NetworkContainerid:         "ethWebApp",
+		NetworkContainerType:       "WebApps",
+		PrimaryInterfaceIdentifier: "11.0.0.7",
+		OrchestratorContext:        orchestratorContext,
+		IPConfiguration: cns.IPConfiguration{
+			DNSServers:       []string{"8.8.8.8", "8.8.4.4"},
+			GatewayIPAddress: "11.0.0.1",
+			IPSubnet:         cns.IPSubnet{IPAddress: "11.0.0.6", PrefixLength: 24},
+		},
+	}
+
+	if err := creatOrUpdateNetworkContainerWithName(t, createNetworkContainerRequest); err != nil {
+		t.Errorf("Updating interface failed with error: %v", err)
 		t.Fatal(err)
 	}
 
 	fmt.Println("Now calling DeleteNetworkContainer")
 
-	err = deleteNetworkAdapterWithName(t, "ethWebApp")
-	if err != nil {
+	if err := deleteNetworkContainerWithName(t, "ethWebApp"); err != nil {
 		t.Errorf("Deleting interface failed Err:%+v", err)
 		t.Fatal(err)
 	}
@@ -606,29 +604,42 @@ func TestGetNetworkContainerByOrchestratorContext(t *testing.T) {
 	setEnv(t)
 	setOrchestratorType(t, cns.Kubernetes)
 
-	err := creatOrUpdateNetworkContainerWithName(t, "ethWebApp", "11.0.0.5", "AzureContainerInstance")
-	if err != nil {
-		t.Errorf("creatOrUpdateNetworkContainerWithName failed Err:%+v", err)
+	// Setup NC: ethWebApp
+	orchestratorContext, _ := json.Marshal(
+		cns.KubernetesPodInfo{PodName: "testpod", PodNamespace: "testpodnamespace"})
+
+	createNetworkContainerRequest := &cns.CreateNetworkContainerRequest{
+		Version:                    "0.1",
+		NetworkContainerid:         "ethWebApp",
+		NetworkContainerType:       "AzureContainerInstance",
+		PrimaryInterfaceIdentifier: "11.0.0.7",
+		OrchestratorContext:        orchestratorContext,
+		IPConfiguration: cns.IPConfiguration{
+			DNSServers:       []string{"8.8.8.8", "8.8.4.4"},
+			GatewayIPAddress: "11.0.0.1",
+			IPSubnet:         cns.IPSubnet{IPAddress: "11.0.0.5", PrefixLength: 24},
+		},
+	}
+
+	if err := creatOrUpdateNetworkContainerWithName(t, createNetworkContainerRequest); err != nil {
+		t.Errorf("Updating interface failed with error: %v", err)
 		t.Fatal(err)
 	}
 
 	fmt.Println("Now calling getNetworkCotnainerStatus")
-	err = getNetworkCotnainerByContext(t, "ethWebApp")
-	if err != nil {
+	if err := getNetworkCotnainerByContext(t, "ethWebApp"); err != nil {
 		t.Errorf("TestGetNetworkContainerByOrchestratorContext failed Err:%+v", err)
 		t.Fatal(err)
 	}
 
 	fmt.Println("Now calling DeleteNetworkContainer")
 
-	err = deleteNetworkAdapterWithName(t, "ethWebApp")
-	if err != nil {
+	if err := deleteNetworkContainerWithName(t, "ethWebApp"); err != nil {
 		t.Errorf("Deleting interface failed Err:%+v", err)
 		t.Fatal(err)
 	}
 
-	err = getNonExistNetworkCotnainerByContext(t, "ethWebApp")
-	if err != nil {
+	if err := getNonExistNetworkCotnainerByContext(t, "ethWebApp"); err != nil {
 		t.Errorf("TestGetNetworkContainerByOrchestratorContext failed Err:%+v", err)
 		t.Fatal(err)
 	}
@@ -640,23 +651,37 @@ func TestGetNetworkContainerStatus(t *testing.T) {
 
 	setEnv(t)
 
-	err := creatOrUpdateNetworkContainerWithName(t, "ethWebApp", "11.0.0.5", "WebApps")
-	if err != nil {
-		t.Errorf("creatOrUpdateWebAppContainerWithName failed Err:%+v", err)
+	// Setup NC: ethWebApp
+	orchestratorContext, _ := json.Marshal(
+		cns.KubernetesPodInfo{PodName: "testpod", PodNamespace: "testpodnamespace"})
+
+	createNetworkContainerRequest := &cns.CreateNetworkContainerRequest{
+		Version:                    "0.1",
+		NetworkContainerid:         "ethWebApp",
+		NetworkContainerType:       "WebApps",
+		PrimaryInterfaceIdentifier: "11.0.0.7",
+		OrchestratorContext:        orchestratorContext,
+		IPConfiguration: cns.IPConfiguration{
+			DNSServers:       []string{"8.8.8.8", "8.8.4.4"},
+			GatewayIPAddress: "11.0.0.1",
+			IPSubnet:         cns.IPSubnet{IPAddress: "11.0.0.5", PrefixLength: 24},
+		},
+	}
+
+	if err := creatOrUpdateNetworkContainerWithName(t, createNetworkContainerRequest); err != nil {
+		t.Errorf("creatOrUpdateNetworkContainerWithName failed with error: %v", err)
 		t.Fatal(err)
 	}
 
 	fmt.Println("Now calling getNetworkCotnainerStatus")
-	err = getNetworkCotnainerStatus(t, "ethWebApp")
-	if err != nil {
+	if err := getNetworkCotnainerStatus(t, "ethWebApp"); err != nil {
 		t.Errorf("getNetworkCotnainerStatus failed Err:%+v", err)
 		t.Fatal(err)
 	}
 
 	fmt.Println("Now calling DeleteNetworkContainer")
 
-	err = deleteNetworkAdapterWithName(t, "ethWebApp")
-	if err != nil {
+	if err := deleteNetworkContainerWithName(t, "ethWebApp"); err != nil {
 		t.Errorf("Deleting interface failed Err:%+v", err)
 		t.Fatal(err)
 	}
@@ -668,23 +693,37 @@ func TestGetInterfaceForNetworkContainer(t *testing.T) {
 
 	setEnv(t)
 
-	err := creatOrUpdateNetworkContainerWithName(t, "ethWebApp", "11.0.0.5", "WebApps")
-	if err != nil {
-		t.Errorf("creatOrUpdateWebAppContainerWithName failed Err:%+v", err)
+	// Setup NC: ethWebApp
+	orchestratorContext, _ := json.Marshal(
+		cns.KubernetesPodInfo{PodName: "testpod", PodNamespace: "testpodnamespace"})
+
+	createNetworkContainerRequest := &cns.CreateNetworkContainerRequest{
+		Version:                    "0.1",
+		NetworkContainerid:         "ethWebApp",
+		NetworkContainerType:       "WebApps",
+		PrimaryInterfaceIdentifier: "11.0.0.7",
+		OrchestratorContext:        orchestratorContext,
+		IPConfiguration: cns.IPConfiguration{
+			DNSServers:       []string{"8.8.8.8", "8.8.4.4"},
+			GatewayIPAddress: "11.0.0.1",
+			IPSubnet:         cns.IPSubnet{IPAddress: "11.0.0.5", PrefixLength: 24},
+		},
+	}
+
+	if err := creatOrUpdateNetworkContainerWithName(t, createNetworkContainerRequest); err != nil {
+		t.Errorf("creatOrUpdateNetworkContainerWithName failed with error: %v", err)
 		t.Fatal(err)
 	}
 
 	fmt.Println("Now calling getInterfaceForContainer")
-	err = getInterfaceForContainer(t, "ethWebApp")
-	if err != nil {
+	if err := getInterfaceForContainer(t, "ethWebApp"); err != nil {
 		t.Errorf("getInterfaceForContainer failed Err:%+v", err)
 		t.Fatal(err)
 	}
 
 	fmt.Println("Now calling DeleteNetworkContainer")
 
-	err = deleteNetworkAdapterWithName(t, "ethWebApp")
-	if err != nil {
+	if err := deleteNetworkContainerWithName(t, "ethWebApp"); err != nil {
 		t.Errorf("Deleting interface failed Err:%+v", err)
 		t.Fatal(err)
 	}
@@ -714,4 +753,321 @@ func TestGetNumOfCPUCores(t *testing.T) {
 	} else {
 		fmt.Printf("getNumberOfCPUCores Responded with %+v\n", numOfCoresResponse)
 	}
+}
+
+func TestCompartmentWithNCs(t *testing.T) {
+	fmt.Println("Test: TestCompartmentWithNCs")
+
+	if "windows" != platform.GetOSInfo() {
+		errInfo := fmt.Errorf("TestCompartmentWithNCs is windows specific test")
+		t.Errorf(errInfo.Error())
+		t.Fatal(errInfo)
+	}
+
+	setEnv(t)
+	setOrchestratorType(t, cns.Kubernetes)
+
+	// setup 3 NCs for this test
+	// Get the primary interface IP
+	conn, err := net.Dial("udp", "8.8.8.8:80")
+	if err != nil {
+		t.Errorf("Failed to get the primary interface IP due to error: %v", err)
+		t.Fatal(err)
+	}
+
+	defer conn.Close()
+	primaryInterfaceIP := strings.Split(conn.LocalAddr().(*net.UDPAddr).String(), ":")[0]
+
+	// Setup NC: Swift_170e7a01-a4da-4851-cea5-08589a449645
+	createNetworkContainerRequest := &cns.CreateNetworkContainerRequest{
+		Version:                    "0.1",
+		NetworkContainerid:         "Swift_170e7a01-a4da-4851-cea5-08589a449645",
+		NetworkContainerType:       "JobObject",
+		PrimaryInterfaceIdentifier: primaryInterfaceIP,
+		IPConfiguration: cns.IPConfiguration{
+			DNSServers:       []string{"192.168.0.66", "192.168.0.67"},
+			GatewayIPAddress: "192.168.0.65",
+			IPSubnet:         cns.IPSubnet{IPAddress: "192.168.0.70", PrefixLength: 26},
+		},
+		MultiTenancyInfo: cns.MultiTenancyInfo{EncapType: "Vlan", ID: 2},
+	}
+
+	if err := creatOrUpdateNetworkContainerWithName(t, createNetworkContainerRequest); err != nil {
+		t.Errorf("creatOrUpdateNetworkContainerWithName failed with error: %v", err)
+		t.Fatal(err)
+	}
+
+	// Setup NC: Swift_171e7a01-a4da-4851-cea5-08589a449645
+	createNetworkContainerRequest = &cns.CreateNetworkContainerRequest{
+		Version:                    "0.1",
+		NetworkContainerid:         "Swift_171e7a01-a4da-4851-cea5-08589a449645",
+		NetworkContainerType:       "JobObject",
+		PrimaryInterfaceIdentifier: primaryInterfaceIP,
+		IPConfiguration: cns.IPConfiguration{
+			DNSServers:       []string{"192.168.0.66", "192.168.0.67"},
+			GatewayIPAddress: "192.168.0.65",
+			IPSubnet:         cns.IPSubnet{IPAddress: "192.168.0.71", PrefixLength: 26},
+		},
+		MultiTenancyInfo: cns.MultiTenancyInfo{EncapType: "Vlan", ID: 3},
+	}
+
+	if err := creatOrUpdateNetworkContainerWithName(t, createNetworkContainerRequest); err != nil {
+		t.Errorf("creatOrUpdateNetworkContainerWithName failed with error: %v", err)
+		t.Fatal(err)
+	}
+
+	// Setup NC: Swift_180e7a01-a4da-4851-cea5-08589a449645
+	createNetworkContainerRequest = &cns.CreateNetworkContainerRequest{
+		Version:                    "0.1",
+		NetworkContainerid:         "Swift_180e7a01-a4da-4851-cea5-08589a449645",
+		NetworkContainerType:       "JobObject",
+		PrimaryInterfaceIdentifier: primaryInterfaceIP,
+		IPConfiguration: cns.IPConfiguration{
+			DNSServers:       []string{"192.168.0.66", "192.168.0.67"},
+			GatewayIPAddress: "192.168.0.65",
+			IPSubnet:         cns.IPSubnet{IPAddress: "192.168.0.80", PrefixLength: 26},
+		},
+		MultiTenancyInfo: cns.MultiTenancyInfo{EncapType: "Vlan", ID: 4},
+	}
+
+	if err := creatOrUpdateNetworkContainerWithName(t, createNetworkContainerRequest); err != nil {
+		t.Errorf("creatOrUpdateNetworkContainerWithName failed with error: %v", err)
+		t.Fatal(err)
+	}
+
+	defer func() {
+		// Remove the network containers
+		deleteNetworkContainerWithName(t, "Swift_170e7a01-a4da-4851-cea5-08589a449645")
+		deleteNetworkContainerWithName(t, "Swift_171e7a01-a4da-4851-cea5-08589a449645")
+		deleteNetworkContainerWithName(t, "Swift_180e7a01-a4da-4851-cea5-08589a449645")
+	}()
+
+	createCompartmentWithValidNCIDs(t)
+	createCompartmentWithInvalidNCIDs(t)
+	createCompartmentWithNCsTestMaxNCCount(t)
+	createCompartmentWithDuplicateNCIDs(t)
+
+	deleteInvalidCompartments(t)
+}
+
+func deleteInvalidCompartments(t *testing.T) {
+	invalidCompartmentIDs := []int{0, 1, 100}
+
+	for _, invalidCompartmentID := range invalidCompartmentIDs {
+		fmt.Printf("deleteInvalidCompartment for compartmentID %d\n", invalidCompartmentID)
+
+		reqInfo := cns.DeleteCompartmentWithNCsRequest{
+			CompartmentID: invalidCompartmentID,
+		}
+
+		var (
+			body bytes.Buffer
+			resp cns.Response
+		)
+
+		json.NewEncoder(&body).Encode(reqInfo)
+		reqPost, err := http.NewRequest(http.MethodDelete, cns.DeleteCompartmentWithNCs, &body)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, reqPost)
+
+		err = decodeResponse(w, &resp)
+		if err != nil || resp.ReturnCode != InvalidParameter {
+			t.Errorf("deleteInvalidCompartment unexpected response %+v Err: %+v", resp, err)
+			t.Fatal(err)
+		}
+
+		fmt.Printf("deleteInvalidCompartment succeded with response %+v, raw: %+v\n", resp, w.Body)
+	}
+}
+
+func deleteCompartmentWithNCs(t *testing.T, compartmentID int) {
+	fmt.Printf("deleteCompartmentWithNCs for compartmentID %d\n", compartmentID)
+
+	reqInfo := cns.DeleteCompartmentWithNCsRequest{
+		CompartmentID: compartmentID,
+	}
+
+	var (
+		body bytes.Buffer
+		resp cns.Response
+	)
+
+	json.NewEncoder(&body).Encode(reqInfo)
+	reqPost, err := http.NewRequest(http.MethodDelete, cns.DeleteCompartmentWithNCs, &body)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, reqPost)
+
+	err = decodeResponse(w, &resp)
+	if err != nil || resp.ReturnCode != Success {
+		t.Errorf("DeleteCompartmentWithNCs unexpected response %+v Err:%+v", resp, err)
+		t.Fatal(err)
+	}
+
+	fmt.Printf("DeleteCompartmentWithNCs succeded with response %+v, raw:%+v\n", resp, w.Body)
+	return
+}
+
+func createCompartmentWithInvalidNCIDs(t *testing.T) {
+	fmt.Printf("createCompartmentWithInvalidNCIDs:\n" +
+		"Swift_170e7a01-a4da-4851-cea5-08589a449645\nSwift_180e7a01-a4da-4851-cea5-08589a449645")
+
+	ncIDs := []string{"170e7a01-a4da-4851-cea5-08589a449645", "1801e7a01-a4da-4851-cea5-08589a449645"}
+	reqInfo := cns.CreateCompartmentWithNCsRequest{
+		NCIDs: ncIDs,
+	}
+
+	var (
+		body bytes.Buffer
+		resp cns.CreateCompartmentWithNCsResponse
+	)
+
+	json.NewEncoder(&body).Encode(reqInfo)
+	reqPost, err := http.NewRequest(http.MethodPost, cns.CreateCompartmentWithNCs, &body)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, reqPost)
+
+	err = decodeResponse(w, &resp)
+	if err != nil || resp.Response.ReturnCode != InvalidParameter {
+		t.Errorf("CreateCompartmentWithNCs unexpected response %+v Err:%+v", resp, err)
+		t.Fatal(err)
+	}
+
+	fmt.Printf("CreateCompartmentWithNCs succeded with response %+v, raw:%+v\n", resp, w.Body)
+	return
+}
+
+func createCompartmentWithValidNCIDs(t *testing.T) {
+	fmt.Printf("createCompartmentWithValidNCIDs:\n" +
+		"Swift_170e7a01-a4da-4851-cea5-08589a449645\nSwift_171e7a01-a4da-4851-cea5-08589a449645\n")
+
+	ncIDs := []string{"170e7a01-a4da-4851-cea5-08589a449645", "171e7a01-a4da-4851-cea5-08589a449645"}
+	reqInfo := cns.CreateCompartmentWithNCsRequest{
+		NCIDs: ncIDs,
+	}
+
+	var body bytes.Buffer
+	var resp cns.CreateCompartmentWithNCsResponse
+
+	json.NewEncoder(&body).Encode(reqInfo)
+	reqPost, err := http.NewRequest(http.MethodPost, cns.CreateCompartmentWithNCs, &body)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, reqPost)
+
+	err = decodeResponse(w, &resp)
+	if err != nil || resp.Response.ReturnCode != 0 {
+		t.Errorf("CreateCompartmentWithNCs unexpected response %+v Err:%+v", resp, err)
+		t.Fatal(err)
+	}
+
+	fmt.Printf("CreateCompartmentWithNCs succeded with response %+v, raw:%+v\n", resp, w.Body)
+
+	deleteCompartmentWithNCs(t, resp.CompartmentID)
+}
+
+func createCompartmentWithNCsTestMaxNCCount(t *testing.T) {
+	fmt.Printf("CreateCompartmentWithNCs:\n" +
+		"Swift_170e7a01-a4da-4851-cea5-08589a449645\nSwift_171e7a01-a4da-4851-cea5-08589a449645" +
+		"\nSwift_172e7a01-a4da-4851-cea5-08589a449645\n")
+
+	ncIDs := []string{"170e7a01-a4da-4851-cea5-08589a449645",
+		"171e7a01-a4da-4851-cea5-08589a449645", "Swift_172e7a01-a4da-4851-cea5-08589a449645"}
+	reqInfo := cns.CreateCompartmentWithNCsRequest{
+		NCIDs: ncIDs,
+	}
+
+	var body bytes.Buffer
+	var resp cns.CreateCompartmentWithNCsResponse
+
+	json.NewEncoder(&body).Encode(reqInfo)
+	reqPost, err := http.NewRequest(http.MethodPost, cns.CreateCompartmentWithNCs, &body)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, reqPost)
+
+	err = decodeResponse(w, &resp)
+	if err != nil || resp.Response.ReturnCode != InvalidParameter {
+		t.Errorf("CreateCompartmentWithNCs unexpected response %+v Err:%+v", resp, err)
+		t.Fatal(err)
+	}
+
+	fmt.Printf("CreateCompartmentWithNCs succeded with response %+v, raw:%+v\n", resp, w.Body)
+	return
+}
+
+func createCompartmentWithDuplicateNCIDs(t *testing.T) {
+	fmt.Printf("createCompartmentWithDuplicateNCIDs:\n" +
+		"Swift_170e7a01-a4da-4851-cea5-08589a449645\nSwift_170e7a01-a4da-4851-cea5-08589a449645")
+
+	ncIDs := []string{"170e7a01-a4da-4851-cea5-08589a449645", "170e7a01-a4da-4851-cea5-08589a449645"}
+	reqInfo := cns.CreateCompartmentWithNCsRequest{
+		NCIDs: ncIDs,
+	}
+
+	var body bytes.Buffer
+	var resp cns.CreateCompartmentWithNCsResponse
+
+	json.NewEncoder(&body).Encode(reqInfo)
+	reqPost, err := http.NewRequest(http.MethodPost, cns.CreateCompartmentWithNCs, &body)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, reqPost)
+
+	err = decodeResponse(w, &resp)
+	if err != nil || resp.Response.ReturnCode != UnexpectedError {
+		t.Errorf("CreateCompartmentWithNCs unexpected response %+v Err:%+v", resp, err)
+		t.Fatal(err)
+	}
+
+	fmt.Printf("CreateCompartmentWithNCs succeded with response %+v, raw:%+v\n", resp, w.Body)
+	return
+}
+
+func deleteNetworkContainerWithName(t *testing.T, name string) error {
+	var body bytes.Buffer
+	info := &cns.DeleteNetworkContainerRequest{
+		NetworkContainerid: name,
+	}
+
+	json.NewEncoder(&body).Encode(info)
+
+	req, err := http.NewRequest(http.MethodPost, cns.DeleteNetworkContainer, &body)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+	var resp cns.DeleteNetworkContainerResponse
+	err = decodeResponse(w, &resp)
+
+	if err != nil || resp.Response.ReturnCode != Success {
+		t.Errorf("DeleteNetworkContainerRequest failed with response %+v Err:%+v", resp, err)
+		t.Fatal(err)
+	}
+
+	fmt.Printf("DeleteNetworkContainerRequest succeeded with response %+v\n", resp)
+
+	return nil
 }

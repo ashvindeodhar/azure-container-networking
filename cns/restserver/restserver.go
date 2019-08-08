@@ -1635,13 +1635,18 @@ func (service *HTTPRestService) getCompartmentIDWithNC(ncID string) (int, error)
 }
 
 // Get the compartment NC data for given compartment ID from service state
-func (service *HTTPRestService) getCompartmentNCData(compartmentID int) ([]string, bool) {
+func (service *HTTPRestService) getCompartmentNCData(compartmentID int) ([]string, error) {
 	service.lock.Lock()
 	defer service.lock.Unlock()
 
+	var err error
 	compartmentNCData, found := service.state.CompartmentNCData[compartmentID]
 
-	return compartmentNCData, found
+	if !found {
+		err = fmt.Errorf("Failed to get the data for compartmentID: %d", compartmentID)
+	}
+
+	return compartmentNCData, err
 }
 
 // Set the compartment NC data in service state
@@ -1657,7 +1662,7 @@ func (service *HTTPRestService) setCompartmentNCData(compartmentID int, ncID str
 
 // Delete the compartment NC data for given compartment ID from service state
 func (service *HTTPRestService) deleteCompartmentNCData(compartmentID int) {
-	if _, found := service.getCompartmentNCData(compartmentID); found {
+	if _, err := service.getCompartmentNCData(compartmentID); err == nil {
 		service.lock.Lock()
 		defer service.lock.Unlock()
 
@@ -1679,7 +1684,8 @@ func (service *HTTPRestService) getNetworkContainerInfo(
 	service.lock.Unlock()
 
 	if !found {
-		return nil, fmt.Errorf("Network container: %s not found", containerName)
+		log.Errorf("[Azure CNS] ERROR: Network container: %s not found", containerName)
+		return nil, fmt.Errorf("ERROR: Network container: %s not found", containerName)
 	}
 
 	savedReq := containerDetails.CreateNetworkContainerRequest
@@ -1713,6 +1719,9 @@ func (service *HTTPRestService) getCompartmentWithNC(w http.ResponseWriter, r *h
 
 	switch r.Method {
 	case "GET":
+		// NC ID will be specified in the url in the form of -
+		// /network/getcompartmentwithnc?ncid=<NCID-GUID>
+		// http provides url values as Form which is used to extract the NCID
 		if err = r.ParseForm(); err != nil {
 			returnMessage = fmt.Sprintf("ERROR: Failed to parse query specified in the API. error: %v", err)
 			returnCode = InvalidParameter
@@ -1762,7 +1771,7 @@ func (service *HTTPRestService) deleteCompartmentWithNCs(w http.ResponseWriter, 
 				returnMessage = fmt.Sprintf("ERROR: Invalid compartment ID specified")
 				returnCode = InvalidParameter
 			} else {
-				if compartmentNCData, found := service.getCompartmentNCData(req.CompartmentID); found {
+				if compartmentNCData, err := service.getCompartmentNCData(req.CompartmentID); err == nil {
 					for _, endpointName := range compartmentNCData {
 						if err = hnsclient.CleanupEndpoint(endpointName); err != nil {
 							returnMessage = err.Error()
@@ -1830,69 +1839,61 @@ func (service *HTTPRestService) createCompartmentWithNCs(w http.ResponseWriter, 
 				returnMessage = fmt.Sprintf("ERROR: Number of NCIDs specified (%d) exceeds max supported (%d)",
 					len(req.NCIDs), hnsclient.MaxNCsPerCompartment)
 				returnCode = InvalidParameter
-			}
-
-			if compartmentID, err = hnsclient.CreateCompartment(); err != nil {
-				returnMessage = err.Error()
-				returnCode = UnexpectedError
 			} else {
-				networkExistsForNC := make(map[string]bool)
-				for _, ncID := range req.NCIDs {
-					var networkContainerInfo *cns.GetNetworkContainerResponse
-					if networkContainerInfo, err = service.getNetworkContainerInfo(ncID); err != nil {
-						returnMessage = fmt.Sprintf("ERROR: Cannot retrieve data for specified NCID")
-						returnCode = InvalidParameter
-					} else {
-						// check if the network for the current NC already exists.
-						if networkExistsForNC[ncID], err =
-							hnsclient.CheckNetworkExistsForNC(networkContainerInfo); err != nil {
-							break
-						}
-
-						if err = hnsclient.SetupNetworkAndEndpoints(
-							networkContainerInfo, ncID, compartmentID); err != nil {
-							returnMessage = fmt.Sprintf("Failed to setup network for NCID: %s "+
-								"due to error: %v", ncID, err)
-							returnCode = UnexpectedError
-							break
-						} else {
-							// save the compartment NC data
-							service.setCompartmentNCData(compartmentID, ncID)
-							log.Printf("[Azure CNS] Successfully created endpoint for NCID: %s ", ncID)
-						}
-					}
-				}
-
-				if err != nil {
+				if compartmentID, err = hnsclient.CreateCompartment(); err != nil {
+					returnMessage = err.Error()
+					returnCode = UnexpectedError
+				} else {
 					for _, ncID := range req.NCIDs {
-						if networkExists, ok := networkExistsForNC[ncID]; ok {
-							if networkExists {
-								// Do endpoint cleanup
-								if err = hnsclient.CleanupEndpoint(ncID); err != nil {
-									log.Errorf("[Azure CNS] Failed to cleanup endpoint for NC ID: %s"+
-										" due to error: %v", ncID, err)
-								}
+						var networkContainerInfo *cns.GetNetworkContainerResponse
+						if networkContainerInfo, err = service.getNetworkContainerInfo(ncID); err != nil {
+							returnMessage = fmt.Sprintf("ERROR: Cannot retrieve data for specified NCID")
+							returnCode = InvalidParameter
+						} else {
+							if err = hnsclient.SetupNetworkAndEndpoints(
+								networkContainerInfo, ncID, compartmentID); err != nil {
+								returnMessage = fmt.Sprintf("Failed to setup network for NCID: %s "+
+									"due to error: %v", ncID, err)
+								// update the return code based on the error
+								// such as endpointalreadyattached
+								returnCode = UnexpectedError
+								break
 							} else {
-								// Delete the network
-								networkContainerInfo, _ := service.getNetworkContainerInfo(ncID)
-								networkName, _ := hnsclient.GetNetworkNameForNC(networkContainerInfo)
-								if err = hnsclient.DeleteHnsNetwork(networkName); err != nil {
-									log.Errorf("[Azure CNS] Failed to delete network for NC ID: %s"+
-										" due to error: %v", ncID, err)
-								}
+								// save the compartment NC data
+								service.setCompartmentNCData(compartmentID, ncID)
+								log.Printf("[Azure CNS] Successfully created endpoint for NCID: %s ", ncID)
 							}
 						}
 					}
 
-					// Delete the compartment
-					if err = hnsclient.DeleteCompartment(compartmentID); err != nil {
-						log.Errorf("[Azure CNS] Failed to delete compartment: %d due to error: %v",
-							compartmentID, err)
-					}
+					if err != nil {
+						var endpoints []string
+						if endpoints, err = service.getCompartmentNCData(compartmentID); err == nil {
+							for _, endpoint := range endpoints {
+								// Do endpoint cleanup
+								if err = hnsclient.CleanupEndpoint(endpoint); err != nil {
+									log.Errorf("[Azure CNS] Failed to cleanup endpoint for NC ID: %s"+
+										" due to error: %v", endpoint, err)
+								}
+							}
 
-				} else {
-					returnMessage = fmt.Sprintf("Successfully created network compartment with ID: %d",
-						compartmentID)
+							// Remove the compartment NC data
+							service.deleteCompartmentNCData(compartmentID)
+						}
+
+						// Delete the compartment
+						if err = hnsclient.DeleteCompartment(compartmentID); err != nil {
+							log.Errorf("[Azure CNS] Failed to delete compartment: %d due to error: %v",
+								compartmentID, err)
+						}
+
+						// Reset the compartment ID to 0
+						compartmentID = 0
+
+					} else {
+						returnMessage = fmt.Sprintf("Successfully created network compartment with ID: %d",
+							compartmentID)
+					}
 				}
 			}
 		default:
@@ -1932,74 +1933,95 @@ func (service *HTTPRestService) restoreCompartmentState() error {
 		if err == nil && rebootTime.After(modTime) {
 			log.Printf("[Azure CNS] Detected Reboot")
 
-			compartmentNCData := service.getAllCompartmentNCData()
-
-			log.Printf("[Azure CNS] Restoring compartment state: %+v", compartmentNCData)
-
-			for _, ncList := range compartmentNCData {
-				for _, ncID := range ncList {
-					if networkContainerInfo, errInner :=
-						service.getNetworkContainerInfo(ncID); errInner == nil {
-						if networkName, errInner :=
-							hnsclient.GetNetworkNameForNC(networkContainerInfo); errInner == nil {
-							if errInner := hnsclient.DeleteHnsNetwork(networkName); errInner != nil {
-								err = errInner
-							}
-						} else {
-							err = errInner
-						}
-					} else {
-						err = errInner
-					}
-				}
-			}
-
-			// In case of error, clear the compartment state from CNS because after reboot
-			// compartments created before reboot are deleted. Client needs to recreate the
-			// compartment state.
-			if err != nil {
-				service.deleteAllCompartmentNCData()
-				return fmt.Errorf("[Azure CNS] ERROR: Failed to restore compartment state"+
-					" due to error: %v. Deleted the state", err)
-			}
-
 			// Keep a copy of compartment NC data for logging in case of error occured after
 			// clearing the old data from the state.
+			compartmentNCData := service.getAllCompartmentNCData()
 			compartmentNCDataCopy := make(map[int][]string)
 			for compartmentID, ncList := range compartmentNCData {
 				compartmentNCDataCopy[compartmentID] = ncList
 			}
 
-			service.deleteAllCompartmentNCData()
+			// Cleanup stale compartment networks
+			if err = service.cleanupStaleCompartmentNetworks(); err != nil {
+				return fmt.Errorf("[Azure CNS] ERROR: Failed to restore compartment state"+
+					" due to error: %v. Deleted the state", err)
+			}
 
 			// Restore the compartment state with NCs
-			for _, ncList := range compartmentNCDataCopy {
-				var compartmentID int
-				if compartmentID, err = hnsclient.CreateCompartment(); err != nil {
-					return err
-				}
+			if err = service.restoreCompartmentNCs(compartmentNCDataCopy); err != nil {
+				log.Errorf("[Azure CNS] ERROR: Failed to restore NCs in compartment"+
+					" due to error: %v", err)
+				return err
+			}
 
-				for _, ncID := range ncList {
-					var networkContainerInfo *cns.GetNetworkContainerResponse
-					if networkContainerInfo, err = service.getNetworkContainerInfo(ncID); err != nil {
-						return err
+		}
+
+		return err
+	}
+
+	return nil
+}
+
+// Cleanup stale compartment networks
+func (service *HTTPRestService) cleanupStaleCompartmentNetworks() error {
+	var err error
+	compartmentNCData := service.getAllCompartmentNCData()
+
+	log.Printf("[Azure CNS] Cleaning up stale compartment networks: %+v", compartmentNCData)
+
+	for _, ncList := range compartmentNCData {
+		for _, ncID := range ncList {
+			if networkContainerInfo, errInner :=
+				service.getNetworkContainerInfo(ncID); errInner == nil {
+				if networkName, errInner :=
+					hnsclient.GetNetworkNameForNC(networkContainerInfo); errInner == nil {
+					if errInner := hnsclient.DeleteHnsNetwork(networkName); errInner != nil {
+						err = errInner
 					}
-
-					if err = hnsclient.SetupNetworkAndEndpoints(
-						networkContainerInfo, ncID, compartmentID); err != nil {
-						return fmt.Errorf("Failed to setup network for NC ID: %s due to error: %v",
-							ncID, err)
-					}
-
-					// Save the compartment NC data
-					service.setCompartmentNCData(compartmentID, ncID)
-					log.Printf("[Azure CNS] Successfully created endpoint for NCID: %s ", ncID)
+				} else {
+					err = errInner
 				}
-
-				log.Printf("[Azure CNS] Successfully created network compartment with ID: %d", compartmentID)
+			} else {
+				err = errInner
 			}
 		}
 	}
 
+	// Remove the stale compartment state
+	service.deleteAllCompartmentNCData()
+
 	return err
+}
+
+// Restore the compartment state with NCs
+func (service *HTTPRestService) restoreCompartmentNCs(compartmentNCData map[int][]string) error {
+	var err error
+
+	for _, ncList := range compartmentNCData {
+		var compartmentID int
+		if compartmentID, err = hnsclient.CreateCompartment(); err != nil {
+			return err
+		}
+
+		for _, ncID := range ncList {
+			var networkContainerInfo *cns.GetNetworkContainerResponse
+			if networkContainerInfo, err = service.getNetworkContainerInfo(ncID); err != nil {
+				return err
+			}
+
+			if err = hnsclient.SetupNetworkAndEndpoints(
+				networkContainerInfo, ncID, compartmentID); err != nil {
+				return fmt.Errorf("Failed to setup network for NC ID: %s due to error: %v",
+					ncID, err)
+			}
+
+			// Save the compartment NC data
+			service.setCompartmentNCData(compartmentID, ncID)
+			log.Printf("[Azure CNS] Successfully created endpoint for NCID: %s ", ncID)
+		}
+
+		log.Printf("[Azure CNS] Successfully created network compartment with ID: %d", compartmentID)
+	}
+
+	return nil
 }

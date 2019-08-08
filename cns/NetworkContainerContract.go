@@ -46,6 +46,9 @@ const (
 	Vxlan = "Vxlan"
 )
 
+// GetCompartmentWithNCRequestKey describes the key used to specify NC ID in the request
+const GetCompartmentWithNCRequestKey = "ncid"
+
 // CreateNetworkContainerRequest specifies request to create a network container or network isolation boundary.
 type CreateNetworkContainerRequest struct {
 	Version                    string
@@ -182,4 +185,26 @@ type DetachContainerFromNetworkResponse struct {
 type NetworkInterface struct {
 	Name      string
 	IPAddress string
+}
+
+// CreateCompartmentWithNCsRequest describes request to create windows network compartment with NCs.
+type CreateCompartmentWithNCsRequest struct {
+	NCIDs []string
+}
+
+// CreateCompartmentWithNCsResponse describes response to create windows network compartment with NCs.
+type CreateCompartmentWithNCsResponse struct {
+	Response      Response
+	CompartmentID int
+}
+
+// DeleteCompartmentWithNCsRequest describes request to delete windows network compartment with NCs.
+type DeleteCompartmentWithNCsRequest struct {
+	CompartmentID int
+}
+
+// GetCompartmentWithNCResponse describes response to get compartmentID with NC request.
+type GetCompartmentWithNCResponse struct {
+	Response      Response
+	CompartmentID int
 }
