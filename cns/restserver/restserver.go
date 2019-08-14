@@ -168,7 +168,15 @@ func (service *HTTPRestService) Start(config *common.ServiceConfig) error {
 	listener.AddHandler(cns.DeleteCompartmentWithNCs, service.deleteCompartmentWithNCs)
 	listener.AddHandler(cns.GetCompartmentWithNC, service.getCompartmentWithNC)
 
-	log.Printf("[Azure CNS]  Listening...")
+	// Fail if the compartment management feature is used but not supported
+	if service.isCompartmentManagementEnabled() {
+		if err = hnsclient.IsCompartmentManagementSupported(); err != nil {
+			log.Errorf("[Azure CNS] Failed to validate compartment management feature due to error: %v", err)
+			return err
+		}
+	}
+
+	log.Printf("[Azure CNS] Listening...")
 
 	return nil
 }
@@ -2024,4 +2032,10 @@ func (service *HTTPRestService) restoreCompartmentNCs(compartmentNCData map[int]
 	}
 
 	return nil
+}
+
+// isCompartmentManagementEnabled checks if the compartment management is enabled
+func (service *HTTPRestService) isCompartmentManagementEnabled() bool {
+	enableCompartmentMgmnt, _ := service.GetOption(acn.OptEnableCompartmentMgmnt).(bool)
+	return enableCompartmentMgmnt
 }

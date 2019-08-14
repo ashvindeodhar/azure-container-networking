@@ -70,3 +70,9 @@ func SetupNetworkAndEndpoints(
 func GetNetworkNameForNC(networkContainerInfo *cns.GetNetworkContainerResponse) (string, error) {
 	return "", fmt.Errorf("[Azure CNS] GetNetworkNameForNC shouldn't be called for linux platform")
 }
+
+// IsCompartmentManagementSupported validates if the compartment management feature can be supported
+// This is windows platform specific.
+func IsCompartmentManagementSupported() error {
+	return fmt.Errorf("[Azure CNS] IsCompartmentManagementSupported shouldn't be called for linux platform")
+}

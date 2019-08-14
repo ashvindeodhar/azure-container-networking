@@ -79,4 +79,8 @@ const (
 	// Disable Telemetry
 	OptTelemetry      = "telemetry"
 	OptTelemetryAlias = "dt"
+
+	// Enable compartment management through CNS
+	OptEnableCompartmentMgmnt      = "enable-compartment-mgmnt"
+	OptEnableCompartmentMgmntAlias = "enablecompartmentmgmnt"
 )

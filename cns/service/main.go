@@ -152,6 +152,13 @@ var args = acn.ArgumentList{
 		Type:         "bool",
 		DefaultValue: true,
 	},
+	{
+		Name:         acn.OptEnableCompartmentMgmnt,
+		Shorthand:    acn.OptEnableCompartmentMgmntAlias,
+		Description:  "Enable windows compartment management with CNS if flag is set",
+		Type:         "bool",
+		DefaultValue: false,
+	},
 }
 
 // Prints description and version information.
@@ -179,6 +186,7 @@ func main() {
 	vers := acn.GetArg(acn.OptVersion).(bool)
 	createDefaultExtNetworkType := acn.GetArg(acn.OptCreateDefaultExtNetworkType).(string)
 	telemetryEnabled := acn.GetArg(acn.OptTelemetry).(bool)
+	manageCompartments := acn.GetArg(acn.OptEnableCompartmentMgmnt).(bool)
 
 	if vers {
 		printVersion()
@@ -240,6 +248,7 @@ func main() {
 	httpRestService.SetOption(acn.OptNetPluginPath, cniPath)
 	httpRestService.SetOption(acn.OptNetPluginConfigFile, cniConfigFile)
 	httpRestService.SetOption(acn.OptCreateDefaultExtNetworkType, createDefaultExtNetworkType)
+	httpRestService.SetOption(acn.OptEnableCompartmentMgmnt, manageCompartments)
 
 	// Create default ext network if commandline option is set
 	if len(strings.TrimSpace(createDefaultExtNetworkType)) > 0 {

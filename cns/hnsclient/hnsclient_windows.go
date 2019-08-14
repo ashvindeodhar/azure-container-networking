@@ -44,6 +44,9 @@ const (
 
 	// Multitenancy encap type
 	encapTypeVLAN = "VLAN"
+
+	// Network adapter prefix
+	networkAdapterPrefix = "vEthernet"
 )
 
 var (
@@ -219,7 +222,7 @@ func CreateCompartment() (int, error) {
 		return compartmentID, fmt.Errorf("ERROR: Unable to create the compartment")
 	}
 
-	args := compartmentManagementBinary + "/operation create"
+	args := compartmentManagementBinary + " /operation create"
 	log.Printf("[Azure CNS] Creating compartment: %v", args)
 
 	if stdout, err = platform.ExecuteCommand(args); err != nil {
@@ -251,7 +254,7 @@ func DeleteCompartment(compartmentID int) error {
 		return fmt.Errorf("ERROR: Unable to delete the compartment")
 	}
 
-	args := compartmentManagementBinary + "/operation delete " + strconv.Itoa(compartmentID)
+	args := compartmentManagementBinary + " /operation delete " + strconv.Itoa(compartmentID)
 	log.Printf("[Azure CNS] Deleting compartment: %v", args)
 
 	if _, err = platform.ExecuteCommand(args); err != nil {
@@ -381,7 +384,7 @@ func GetNetworkAdapterNameForNC(networkContainerInfo *cns.GetNetworkContainerRes
 	}
 
 	// FixMe: Find a better way to check if a nic that is selected is not part of a vSwitch
-	if strings.HasPrefix(networkAdapterName, "vEthernet") {
+	if strings.HasPrefix(networkAdapterName, networkAdapterPrefix) {
 		networkAdapterName = ""
 	}
 
@@ -580,6 +583,30 @@ func attachEndpointToCompartment(endpoint *hcsshim.HNSEndpoint, compartmentID in
 	}
 
 	log.Printf("[Azure CNS] Successfully attached endpoint: %s to compartment with ID: %d", endpoint.Name, compartmentID)
+
+	return nil
+}
+
+// IsCompartmentManagementSupported validates if the compartment management feature can be supported
+func IsCompartmentManagementSupported() error {
+	log.Printf("[Azure CNS] IsCompartmentManagementSupported")
+
+	if _, err := os.Stat(compartmentManagementBinary); err != nil {
+		errMsg := fmt.Sprintf("ERROR: Unable to find %s needed for compartment creation", compartmentManagementBinary)
+		log.Errorf("[Azure CNS] %s", errMsg)
+		return fmt.Errorf(errMsg)
+	}
+
+	args := compartmentManagementBinary + " /operation validate"
+	log.Printf("[Azure CNS] Checking if compartment management is supported: %v", args)
+
+	if _, err := platform.ExecuteCommand(args); err != nil {
+		errMsg := fmt.Sprintf("ERROR: Compartment management is not supported due to error: %v", err)
+		log.Errorf("[Azure CNS] %s", errMsg)
+		return fmt.Errorf(errMsg)
+	}
+
+	log.Printf("[Azure CNS] Compartment management is supported")
 
 	return nil
 }
