@@ -31,7 +31,7 @@ const (
 
 	// Name of the executable to manage windows network compartment
 	// creation and deletion
-	compartmentManagementBinary = "CNS-CompartmentManagement.exe"
+	compartmentManagementBinary = "azure-cns-compartmentmanagement.exe"
 
 	// Azure DNS IP
 	AzureDNS = "168.63.129.16"
