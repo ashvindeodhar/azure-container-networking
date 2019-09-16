@@ -37,7 +37,7 @@ const (
 	logFilePerm      = os.FileMode(0664)
 
 	// Log file rotation default limits, in bytes.
-	maxLogFileSize   = 5 * 1024 * 1024
+	maxLogFileSize   = 16 * 1024 * 1024
 	maxLogFileCount  = 8
 	rotationCheckFrq = 8
 )
