@@ -1599,7 +1599,13 @@ func (service *HTTPRestService) getNumberOfCPUCores(w http.ResponseWriter, r *ht
 
 	switch r.Method {
 	case "GET":
-		num = runtime.NumCPU()
+		// Use NumCPUCores from commandline option if set
+		numCPUCoresOpt := service.GetOption(acn.OptNumCPUCores).(int)
+		if numCPUCoresOpt > 0 {
+			num = numCPUCoresOpt
+		} else {
+			num = runtime.NumCPU()
+		}
 	default:
 		errMsg = "[Azure-CNS] getNumberOfCPUCores API expects a GET."
 		returnCode = UnsupportedVerb

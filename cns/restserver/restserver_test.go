@@ -727,6 +727,30 @@ func TestGetInterfaceForNetworkContainer(t *testing.T) {
 func TestGetNumOfCPUCores(t *testing.T) {
 	fmt.Println("Test: getNumberOfCPUCores")
 
+	// Test CNS commandline option numcpucores.
+	numcpucores := 100
+
+	// Set the CNS restserver option. This step is needed for test only. When the CNS exe
+	// is run with commandline, CNS main function takes care of this.
+	service.(*HTTPRestService).SetOption(acncommon.OptNumCPUCores, numcpucores)
+	numOfCoresResponse := getNumOfCPUCores(t)
+
+	// Match the returned value with the set value of numcpucores
+	if numcpucores != numOfCoresResponse.NumOfCPUCores {
+		t.Fatal(fmt.Errorf("Mismatch in NumCPUCores. Expected: %d Received: %d",
+			numcpucores, numOfCoresResponse.NumOfCPUCores))
+	}
+
+	fmt.Printf("getNumberOfCPUCores Responded with %+v\n\n", numOfCoresResponse)
+
+	// Test the case where the commandline option is not set. CNS returns the actual CPU count.
+	service.(*HTTPRestService).SetOption(acncommon.OptNumCPUCores, 0)
+	numOfCoresResponse = getNumOfCPUCores(t)
+
+	fmt.Printf("getNumberOfCPUCores Responded with %+v\n\n", numOfCoresResponse)
+}
+
+func getNumOfCPUCores(t *testing.T) cns.NumOfCPUCoresResponse {
 	var (
 		err error
 		req *http.Request
@@ -744,8 +768,8 @@ func TestGetNumOfCPUCores(t *testing.T) {
 
 	err = decodeResponse(w, &numOfCoresResponse)
 	if err != nil || numOfCoresResponse.Response.ReturnCode != 0 {
-		t.Errorf("getNumberOfCPUCores failed with response %+v", numOfCoresResponse)
-	} else {
-		fmt.Printf("getNumberOfCPUCores Responded with %+v\n", numOfCoresResponse)
+		t.Fatal(fmt.Errorf("getNumberOfCPUCores failed with response %+v", numOfCoresResponse))
 	}
+
+	return numOfCoresResponse
 }

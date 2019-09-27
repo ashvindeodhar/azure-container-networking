@@ -79,4 +79,8 @@ const (
 	// Disable Telemetry
 	OptTelemetry      = "telemetry"
 	OptTelemetryAlias = "dt"
+
+	// Set the CPU Core number. This setting should be used in test environment only
+	OptNumCPUCores      = "numcpucores"
+	OptNumCPUCoresAlias = "ncpu"
 )

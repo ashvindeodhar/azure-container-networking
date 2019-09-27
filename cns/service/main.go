@@ -152,6 +152,13 @@ var args = acn.ArgumentList{
 		Type:         "bool",
 		DefaultValue: true,
 	},
+	{
+		Name:         acn.OptNumCPUCores,
+		Shorthand:    acn.OptNumCPUCoresAlias,
+		Description:  "Set the CPU Core number. This setting should be used in test environment only",
+		Type:         "int",
+		DefaultValue: 0,
+	},
 }
 
 // Prints description and version information.
@@ -179,6 +186,7 @@ func main() {
 	vers := acn.GetArg(acn.OptVersion).(bool)
 	createDefaultExtNetworkType := acn.GetArg(acn.OptCreateDefaultExtNetworkType).(string)
 	telemetryEnabled := acn.GetArg(acn.OptTelemetry).(bool)
+	numCPUCores := acn.GetArg(acn.OptNumCPUCores).(int)
 
 	if vers {
 		printVersion()
@@ -240,6 +248,7 @@ func main() {
 	httpRestService.SetOption(acn.OptNetPluginPath, cniPath)
 	httpRestService.SetOption(acn.OptNetPluginConfigFile, cniConfigFile)
 	httpRestService.SetOption(acn.OptCreateDefaultExtNetworkType, createDefaultExtNetworkType)
+	httpRestService.SetOption(acn.OptNumCPUCores, numCPUCores)
 
 	// Create default ext network if commandline option is set
 	if len(strings.TrimSpace(createDefaultExtNetworkType)) > 0 {
