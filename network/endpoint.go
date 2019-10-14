@@ -124,7 +124,6 @@ func (nw *network) deleteEndpoint(endpointId string) error {
 
 	// Look up the endpoint.
 	ep, err := nw.getEndpoint(endpointId)
-	log.Printf("[net] tempdebug:EP %+v.", ep)
 	if err != nil {
 		log.Printf("[net] Endpoint %v not found. Not Returning error", endpointId)
 		return nil

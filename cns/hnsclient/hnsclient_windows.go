@@ -220,7 +220,6 @@ func configureHostNCApipaNetwork(localIPConfiguration cns.IPConfiguration) (*hcn
 
 	subnetPrefix.IP = ipAddr.Mask(subnetPrefix.Mask)
 	subnetPrefixStr = subnetPrefix.IP.String() + "/" + strconv.Itoa(int(localIPConfiguration.IPSubnet.PrefixLength))
-	log.Printf("[tempdebug] configureApipaNetwork: subnetPrefixStr: %s, GW: %s", subnetPrefixStr, localIPConfiguration.GatewayIPAddress)
 
 	subnet := hcn.Subnet{
 		IpAddressPrefix: subnetPrefixStr,
@@ -233,6 +232,8 @@ func configureHostNCApipaNetwork(localIPConfiguration cns.IPConfiguration) (*hcn
 	}
 
 	network.Ipams[0].Subnets = append(network.Ipams[0].Subnets, subnet)
+
+	log.Printf("[Azure CNS] Configured HostNCApipaNetwork: %+v", network)
 
 	return network, nil
 }
@@ -308,7 +309,6 @@ func configureHostNCApipaEndpoint(
 
 	localIP := localIPConfiguration.IPSubnet.IPAddress
 	remoteIP := localIPConfiguration.GatewayIPAddress
-	log.Printf("[tempdebug] configureHostNCApipaEndpoint localIP: %s, remoteIP: %s", localIP, remoteIP)
 	/********************************************************************************************************/
 	// Add ICMP ACLs
 	{
@@ -600,10 +600,12 @@ func configureHostNCApipaEndpoint(
 
 	ipConfiguration := hcn.IpConfig{
 		IpAddress:    localIP,
-		PrefixLength: localIPConfiguration.IPSubnet.PrefixLength, // TODO: this should come from the cns config
+		PrefixLength: localIPConfiguration.IPSubnet.PrefixLength,
 	}
 
 	endpoint.IpConfigurations = append(endpoint.IpConfigurations, ipConfiguration)
+
+	log.Printf("[Azure CNS] Configured HostNCApipaEndpoint: %+v", endpoint)
 
 	return endpoint, nil
 }
