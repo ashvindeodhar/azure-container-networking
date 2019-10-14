@@ -194,6 +194,7 @@ func configureHostNCApipaNetwork(localIPConfiguration cns.IPConfiguration) (*hcn
 			Minor: hcnSchemaVersionMinor,
 		},
 		Type: hostNCApipaNetworkType,
+		Flags: hcn.EnableNonPersistent,// Set up the network in non-persistent mode
 	}
 
 	if netAdapterNamePolicy, err := policy.GetHcnNetAdapterPolicy(hostNCLoopbackAdapterName); err == nil {

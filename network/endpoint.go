@@ -43,7 +43,6 @@ type endpoint struct {
 	PODNameSpace             string `json:",omitempty"`
 	InfraVnetAddressSpace    string `json:",omitempty"`
 	NetNs                    string `json:",omitempty"`
-	NetworkID                string
 }
 
 // EndpointInfo contains read-only information about an endpoint.
@@ -66,7 +65,6 @@ type EndpointInfo struct {
 	EnableMultiTenancy       bool
 	AllowInboundFromHostToNC bool
 	AllowInboundFromNCToHost bool
-	NetworkID                string //TODO: check if this needed
 	NetworkContainerID       string
 	HostNCApipaEndpointID    string
 	PODName                  string
@@ -106,7 +104,6 @@ func (nw *network) newEndpoint(epInfo *EndpointInfo) (*endpoint, error) {
 
 	nw.Endpoints[epInfo.Id] = ep
 	log.Printf("[net] Created endpoint %+v.", ep)
-	log.Printf("[net] Created endpoint2 %+v.", nw.Endpoints[epInfo.Id])
 
 	return ep, nil
 }

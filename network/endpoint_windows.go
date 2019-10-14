@@ -25,9 +25,6 @@ const (
 
 	// hcnIpamTypeStatic indicates the static type of ipam
 	hcnIpamTypeStatic = "Static"
-
-	// HostNCApipaNetworkName indicates the name of the apipa network used for host container connectivity
-	HostNCApipaNetworkName = "host-nc-apipa-network"
 )
 
 // HotAttachEndpoint is a wrapper of hcsshim's HotAttachEndpoint.
@@ -178,7 +175,7 @@ func (nw *network) configureHcnEndpoint(epInfo *EndpointInfo) (*hcn.HostComputeE
 		MacAddress: epInfo.MacAddress.String(),
 	}
 
-	if endpointPolicies, err := policy.GetHcnEndpointPolicies(false, policy.EndpointPolicy, epInfo.Policies, epInfo.Data); err == nil {
+	if endpointPolicies, err := policy.GetHcnEndpointPolicies(policy.EndpointPolicy, epInfo.Policies, epInfo.Data); err == nil {
 		for _, epPolicy := range endpointPolicies {
 			hcnEndpoint.Policies = append(hcnEndpoint.Policies, epPolicy)
 		}
@@ -343,7 +340,6 @@ func (nw *network) newEndpointImplHnsV2(epInfo *EndpointInfo) (*endpoint, error)
 		EnableSnatOnHost: epInfo.EnableSnatOnHost,
 		NetNs:            epInfo.NetNsPath,
 		HostNCApipaEndpointID: epInfo.HostNCApipaEndpointID,
-		NetworkID:             epInfo.NetworkID,
 	}
 
 	for _, route := range epInfo.Routes {

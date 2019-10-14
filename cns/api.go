@@ -3,9 +3,7 @@
 
 package cns
 
-import (
-	"encoding/json"
-)
+import "encoding/json"
 
 // Container Network Service remote API Contract
 const (

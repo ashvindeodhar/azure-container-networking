@@ -28,7 +28,7 @@ func SetupRoutingForMultitenancy(
 	if nwCfg.MultiTenancy {
 		// if snat enabled, add 169.254.0.1 as default gateway
 		if nwCfg.EnableSnatOnHost {
-			log.Printf("add default route for multitenancy.snat on host enabled with .2")
+			log.Printf("add default route for multitenancy.snat on host enabled")
 			addDefaultRoute(cnsNetworkConfig.LocalIPConfiguration.GatewayIPAddress, epInfo, result)
 		} else {
 			_, defaultIPNet, _ := net.ParseCIDR("0.0.0.0/0")
@@ -59,7 +59,6 @@ func getContainerNetworkConfiguration(
 	return getContainerNetworkConfigurationInternal(nwCfg.CNSUrl, podNamespace, podNameWithoutSuffix, ifName)
 }
 
-//TODO: there is no need for this internal function - maybe called from other place
 func getContainerNetworkConfigurationInternal(
 	address string,
 	namespace string,
