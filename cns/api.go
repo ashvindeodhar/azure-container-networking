@@ -172,7 +172,7 @@ type CreateHostNCApipaEndpointResponse struct {
 // DeleteHostNCApipaEndpointRequest describes request for deleting apipa endpoint created
 // for host NC connectivity.
 type DeleteHostNCApipaEndpointRequest struct {
-	EndpointID string
+	NetworkContainerID string
 }
 
 // DeleteHostNCApipaEndpointResponse describes response for delete host NC apipa endpoint request.

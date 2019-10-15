@@ -206,17 +206,17 @@ func (nw *network) configureHcnEndpoint(epInfo *EndpointInfo) (*hcn.HostComputeE
 	return hcnEndpoint, nil
 }
 
-func (nw *network) deleteHostNCApipaEndpoint(hostNCApipaEndpointID string) error {
+func (nw *network) deleteHostNCApipaEndpoint(networkContainerID string) error {
 	cnsClient, err := cnsclient.GetCnsClient()
 	if err != nil {
 		log.Errorf("Failed to get CNS client. Error %v", err)
 		return err
 	}
 
-	log.Printf("[net] Deleting HostNCApipaEndpoint with id: %s", hostNCApipaEndpointID)
-	err = cnsClient.DeleteHostNCApipaEndpoint(hostNCApipaEndpointID)
-	log.Printf("[net] Completed HostNCApipaEndpoint deletion for ID: %s with error: %v",
-		hostNCApipaEndpointID, err)
+	log.Printf("[net] Deleting HostNCApipaEndpoint for network container: %s", networkContainerID)
+	err = cnsClient.DeleteHostNCApipaEndpoint(networkContainerID)
+	log.Printf("[net] Completed HostNCApipaEndpoint deletion for network container: %s"+
+		" with error: %v", networkContainerID, err)
 
 	return nil
 }
@@ -250,7 +250,7 @@ func (nw *network) createHostNCApipaEndpoint(epInfo *EndpointInfo) error {
 
 	defer func() {
 		if err != nil {
-			nw.deleteHostNCApipaEndpoint(hostNCApipaEndpointID)
+			nw.deleteHostNCApipaEndpoint(epInfo.NetworkContainerID)
 		}
 	}()
 
@@ -258,8 +258,6 @@ func (nw *network) createHostNCApipaEndpoint(epInfo *EndpointInfo) error {
 		return fmt.Errorf("[net] Failed to add HostNCApipaEndpoint: %s to namespace: %s due to error: %v",
 			hostNCApipaEndpointID, namespace.Id, err)
 	}
-
-	epInfo.HostNCApipaEndpointID = hostNCApipaEndpointID
 
 	return nil
 }
@@ -329,17 +327,17 @@ func (nw *network) newEndpointImplHnsV2(epInfo *EndpointInfo) (*endpoint, error)
 
 	// Create the endpoint object.
 	ep := &endpoint{
-		Id:               hcnEndpoint.Name,
-		HnsId:            hnsResponse.Id,
-		SandboxKey:       epInfo.ContainerID,
-		IfName:           epInfo.IfName,
-		IPAddresses:      epInfo.IPAddresses,
-		Gateways:         []net.IP{gateway},
-		DNS:              epInfo.DNS,
-		VlanID:           vlanid,
-		EnableSnatOnHost: epInfo.EnableSnatOnHost,
-		NetNs:            epInfo.NetNsPath,
-		HostNCApipaEndpointID: epInfo.HostNCApipaEndpointID,
+		Id:                 hcnEndpoint.Name,
+		HnsId:              hnsResponse.Id,
+		SandboxKey:         epInfo.ContainerID,
+		IfName:             epInfo.IfName,
+		IPAddresses:        epInfo.IPAddresses,
+		Gateways:           []net.IP{gateway},
+		DNS:                epInfo.DNS,
+		VlanID:             vlanid,
+		EnableSnatOnHost:   epInfo.EnableSnatOnHost,
+		NetNs:              epInfo.NetNsPath,
+		NetworkContainerID: epInfo.NetworkContainerID,
 	}
 
 	for _, route := range epInfo.Routes {
@@ -384,7 +382,7 @@ func (nw *network) deleteEndpointImplHnsV2(ep *endpoint) error {
 
 	//if epInfo.AllowInboundFromHostToNC || epInfo.AllowInboundFromNCToHost {
 	{
-		if err = nw.deleteHostNCApipaEndpoint(ep.HostNCApipaEndpointID); err != nil {
+		if err = nw.deleteHostNCApipaEndpoint(ep.NetworkContainerID); err != nil {
 			log.Errorf("[net] Failed to delete HostNCApipaEndpoint due to error: %v", err)
 			return err
 		}

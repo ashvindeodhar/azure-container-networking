@@ -150,7 +150,7 @@ func (cnsClient *CNSClient) CreateHostNCApipaEndpoint(
 }
 
 // DeleteHostNCApipaEndpoint deletes the endpoint in APIPA network created for host container connectivity.
-func (cnsClient *CNSClient) DeleteHostNCApipaEndpoint(endpointID string) error {
+func (cnsClient *CNSClient) DeleteHostNCApipaEndpoint(networkContainerID string) error {
 	var body bytes.Buffer
 
 	// TODO: Move this to create a reusable http client.
@@ -159,7 +159,7 @@ func (cnsClient *CNSClient) DeleteHostNCApipaEndpoint(endpointID string) error {
 	log.Printf("DeleteHostNCApipaEndpoint url: %v", url)
 
 	payload := &cns.DeleteHostNCApipaEndpointRequest{
-		EndpointID: endpointID,
+		NetworkContainerID: networkContainerID,
 	}
 
 	err := json.NewEncoder(&body).Encode(payload)

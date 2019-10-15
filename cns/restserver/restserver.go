@@ -1697,8 +1697,9 @@ func (service *HTTPRestService) deleteHostNCApipaEndpoint(w http.ResponseWriter,
 
 	switch r.Method {
 	case "POST":
-		if err = hnsclient.DeleteHostNCApipaEndpoint(req.EndpointID); err != nil {
-			returnMessage = fmt.Sprintf("Failed to delete endpoint: %s due to error: %v", req.EndpointID, err)
+		if err = hnsclient.DeleteHostNCApipaEndpoint(req.NetworkContainerID); err != nil {
+			returnMessage = fmt.Sprintf("Failed to delete endpoint for Network Container: %s "+
+				"due to error: %v", req.NetworkContainerID, err)
 			returnCode = UnexpectedError
 		}
 	default:

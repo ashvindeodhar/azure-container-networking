@@ -9,6 +9,7 @@ import (
 
 	"github.com/Azure/azure-container-networking/cns"
 	"github.com/Azure/azure-container-networking/cns/networkcontainers"
+	"github.com/Azure/azure-container-networking/common"
 	"github.com/Azure/azure-container-networking/log"
 	"github.com/Azure/azure-container-networking/network/policy"
 	"github.com/Microsoft/hcsshim"
@@ -59,6 +60,11 @@ const (
 
 	// protocolICMPv4 indicates the ICMPv4 protocol identifier in HCN
 	protocolICMPv4 = "1"
+)
+
+var (
+	// Named Lock for network and endpoint creation/deletion
+	namedLock = common.InitNamedLock()
 )
 
 // CreateHnsNetwork creates the HNS network with the provided configuration
@@ -255,6 +261,9 @@ func createHostNCApipaNetwork(
 		err     error
 	)
 
+	namedLock.LockAcquire(hostNCApipaNetworkName)
+	defer namedLock.LockRelease(hostNCApipaNetworkName)
+
 	// Check if the network exists for host NC connectivity
 	if network, err = hcn.GetNetworkByName(hostNCApipaNetworkName); err != nil {
 		// If error is anything other than networkNotFound, mark this as error
@@ -423,7 +432,6 @@ func configureHostNCApipaEndpoint(
 	return endpoint, nil
 }
 
-//TODO: lock
 // CreateHostNCApipaEndpoint creates the endpoint in the apipa network for host container connectivity
 func CreateHostNCApipaEndpoint(
 	networkContainerID string,
@@ -434,6 +442,9 @@ func CreateHostNCApipaEndpoint(
 		endpointName = getHostNCApipaEndpointName(networkContainerID)
 		err          error
 	)
+
+	namedLock.LockAcquire(endpointName)
+	defer namedLock.LockRelease(endpointName)
 
 	// Return if the endpoint already exists
 	if endpoint, err = hcn.GetEndpointByName(endpointName); err != nil {
@@ -508,15 +519,15 @@ func deleteNetworkHnsV2(
 	return nil
 }
 
-func deleteEndpointHnsV2(
-	endpointID string) error {
+func deleteEndpointByNameHnsV2(
+	endpointName string) error {
 	var (
 		endpoint *hcn.HostComputeEndpoint
 		err      error
 	)
 
-	// Check if the endpoint with the provided ID exists
-	if endpoint, err = hcn.GetEndpointByID(endpointID); err != nil {
+	// Check if the endpoint exists
+	if endpoint, err = hcn.GetEndpointByName(endpointName); err != nil {
 		// If error is anything other than EndpointNotFoundError, return error.
 		// else log the error but don't return error because endpoint is already deleted.
 		if _, endpointNotFound := err.(hcn.EndpointNotFoundError); !endpointNotFound {
@@ -525,7 +536,7 @@ func deleteEndpointHnsV2(
 		}
 
 		log.Errorf("[Azure CNS] Delete called on the Endpoint: %s which doesn't exist. Error: %v",
-			endpointID, err)
+			endpointName, err)
 
 		return nil
 	}
@@ -539,17 +550,23 @@ func deleteEndpointHnsV2(
 	return nil
 }
 
-//TODO: lock
 // DeleteHostNCApipaEndpoint deletes the endpoint in the apipa network created for host container connectivity
-// TODO: If you don't delete this APIPA network / if VM gets rebooted, how will you clean this upon restart?
 func DeleteHostNCApipaEndpoint(
-	endpointID string) error {
-	if err := deleteEndpointHnsV2(endpointID); err != nil {
-		log.Errorf("[Azure CNS] Failed to delete HostNCApipaEndpoint with ID: %s. Error: %v", endpointID, err)
+	networkContainerID string) error {
+	endpointName := getHostNCApipaEndpointName(networkContainerID)
+
+	namedLock.LockAcquire(endpointName)
+	defer namedLock.LockRelease(endpointName)
+
+	if err := deleteEndpointByNameHnsV2(endpointName); err != nil {
+		log.Errorf("[Azure CNS] Failed to delete HostNCApipaEndpoint: %s. Error: %v", endpointName, err)
 		return err
 	}
 
-	log.Debugf("[Azure CNS] Successfully deleted HostNCApipaEndpoint with ID: %v", endpointID)
+	log.Debugf("[Azure CNS] Successfully deleted HostNCApipaEndpoint: %v", endpointName)
+
+	namedLock.LockAcquire(hostNCApipaNetworkName)
+	defer namedLock.LockRelease(hostNCApipaNetworkName)
 
 	// Check if hostNCApipaNetworkName has any endpoints left
 	if network, err := hcn.GetNetworkByName(hostNCApipaNetworkName); err == nil {
