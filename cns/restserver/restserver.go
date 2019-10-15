@@ -1099,9 +1099,7 @@ func (service *HTTPRestService) createOrUpdateNetworkContainer(w http.ResponseWr
 	case "POST":
 		if req.NetworkContainerType == cns.WebApps {
 			// try to get the saved nc state if it exists
-			service.lock.Lock()
-			existing, ok := service.state.ContainerStatus[req.NetworkContainerid]
-			service.lock.Unlock()
+			existing, ok := service.getNetworkContainerDetails(req.NetworkContainerid)
 
 			// create/update nc only if it doesn't exist or it exists and the requested version is different from the saved version
 			if !ok || (ok && existing.VMVersion != req.Version) {
@@ -1114,9 +1112,7 @@ func (service *HTTPRestService) createOrUpdateNetworkContainer(w http.ResponseWr
 			}
 		} else if req.NetworkContainerType == cns.AzureContainerInstance {
 			// try to get the saved nc state if it exists
-			service.lock.Lock()
-			existing, ok := service.state.ContainerStatus[req.NetworkContainerid]
-			service.lock.Unlock()
+			existing, ok := service.getNetworkContainerDetails(req.NetworkContainerid)
 
 			// create/update nc only if it doesn't exist or it exists and the requested version is different from the saved version
 			if ok && existing.VMVersion != req.Version {
@@ -1278,9 +1274,7 @@ func (service *HTTPRestService) deleteNetworkContainer(w http.ResponseWriter, r 
 		var containerStatus containerstatus
 		var ok bool
 
-		service.lock.Lock()
-		containerStatus, ok = service.state.ContainerStatus[req.NetworkContainerid]
-		service.lock.Unlock()
+		containerStatus, ok = service.getNetworkContainerDetails(req.NetworkContainerid)
 
 		if !ok {
 			log.Printf("Not able to retrieve network container details for this container id %v", req.NetworkContainerid)
@@ -1541,9 +1535,8 @@ func (service *HTTPRestService) attachOrDetachHelper(req cns.ConfigureContainerN
 			Message:    "[Azure CNS] Error. NetworkContainerid is empty"}
 	}
 
-	service.lock.Lock()
-	existing, ok := service.state.ContainerStatus[cns.SwiftPrefix+req.NetworkContainerid]
-	service.lock.Unlock()
+	existing, ok := service.getNetworkContainerDetails(cns.SwiftPrefix + req.NetworkContainerid)
+
 	if !ok {
 		return cns.Response{
 			ReturnCode: NotFound,
@@ -1621,7 +1614,6 @@ func (service *HTTPRestService) getNumberOfCPUCores(w http.ResponseWriter, r *ht
 	log.Response(service.Name, numOfCPUCoresResp, resp.ReturnCode, ReturnCodeToString(resp.ReturnCode), err)
 }
 
-//TODO: Use this in other places where this is being used.
 func (service *HTTPRestService) getNetworkContainerDetails(networkContainerID string) (containerstatus, bool) {
 	service.lock.Lock()
 	defer service.lock.Unlock()
@@ -1652,10 +1644,20 @@ func (service *HTTPRestService) createHostNCApipaEndpoint(w http.ResponseWriter,
 	case "POST":
 		networkContainerDetails, found := service.getNetworkContainerDetails(req.NetworkContainerID)
 		if found {
-			if endpointID, err = hnsclient.CreateHostNCApipaEndpoint(req.NetworkContainerID,
-				networkContainerDetails.CreateNetworkContainerRequest.LocalIPConfiguration); err != nil {
-				returnMessage = fmt.Sprintf("CreateHostNCApipaEndpoint failed with error: %v", err)
-				returnCode = UnexpectedError
+			if !networkContainerDetails.CreateNetworkContainerRequest.AllowNCToHostCommunication &&
+				!networkContainerDetails.CreateNetworkContainerRequest.AllowHostToNCCommunication {
+				returnMessage = fmt.Sprintf("HostNCApipaEndpoint creation is not supported unless " +
+					"AllowNCToHostCommunication or AllowHostToNCCommunication is set to true")
+				returnCode = InvalidRequest
+			} else {
+				if endpointID, err = hnsclient.CreateHostNCApipaEndpoint(
+					req.NetworkContainerID,
+					networkContainerDetails.CreateNetworkContainerRequest.LocalIPConfiguration,
+					networkContainerDetails.CreateNetworkContainerRequest.AllowNCToHostCommunication,
+					networkContainerDetails.CreateNetworkContainerRequest.AllowHostToNCCommunication); err != nil {
+					returnMessage = fmt.Sprintf("CreateHostNCApipaEndpoint failed with error: %v", err)
+					returnCode = UnexpectedError
+				}
 			}
 		} else {
 			returnMessage = fmt.Sprintf("CreateHostNCApipaEndpoint failed with error: Unable to find goal state for"+

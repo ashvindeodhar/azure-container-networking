@@ -264,15 +264,12 @@ func createHostNCApipaNetwork(
 	namedLock.LockAcquire(hostNCApipaNetworkName)
 	defer namedLock.LockRelease(hostNCApipaNetworkName)
 
-	// Check if the network exists for host NC connectivity
+	// Check if the network exists for Host NC connectivity
 	if network, err = hcn.GetNetworkByName(hostNCApipaNetworkName); err != nil {
 		// If error is anything other than networkNotFound, mark this as error
-		// TODO: why is following part not working?
-		/*
-			if _, networkNotFound := err.(hcn.NetworkNotFoundError); !networkNotFound {
-				return nil, fmt.Errorf("[Azure CNS] ERROR: createApipaNetwork failed. Error with GetNetworkByName: %v", err)
-			}
-		*/
+		if _, networkNotFound := err.(hcn.NetworkNotFoundError); !networkNotFound {
+			return nil, fmt.Errorf("[Azure CNS] ERROR: createApipaNetwork failed. Error with GetNetworkByName: %v", err)
+		}
 
 		// Network doesn't exist. Create one.
 		if network, err = configureHostNCApipaNetwork(localIPConfiguration); err != nil {
@@ -280,7 +277,7 @@ func createHostNCApipaNetwork(
 		}
 
 		// Create loopback adapter needed for this HNS network
-		if networkExists, _ := networkcontainers.InterfaceExists(hostNCLoopbackAdapterName); !networkExists {
+		if interfaceExists, _ := networkcontainers.InterfaceExists(hostNCLoopbackAdapterName); !interfaceExists {
 			ipconfig := cns.IPConfiguration{
 				IPSubnet: cns.IPSubnet{
 					IPAddress:    localIPConfiguration.GatewayIPAddress,
@@ -338,7 +335,9 @@ func addAclToEndpointPolicy(
 func configureHostNCApipaEndpoint(
 	endpointName string,
 	networkID string,
-	localIPConfiguration cns.IPConfiguration) (*hcn.HostComputeEndpoint, error) {
+	localIPConfiguration cns.IPConfiguration,
+	allowNCToHostCommunication bool,
+	allowHostToNCCommunication bool) (*hcn.HostComputeEndpoint, error) {
 	var err error
 	endpoint := &hcn.HostComputeEndpoint{
 		Name:               endpointName,
@@ -367,20 +366,23 @@ func configureHostNCApipaEndpoint(
 		return nil, err
 	}
 
-	// Endpoint ACL to allow the outbound traffic from the Apipa IP of the container to
-	// Apipa IP of the host only
-	outAllowToHostOnly := hcn.AclPolicySetting{
-		Protocols:       protocolList,
-		Action:          hcn.ActionTypeAllow,
-		Direction:       hcn.DirectionTypeOut,
-		LocalAddresses:  networkContainerApipaIP,
-		RemoteAddresses: hostApipaIP,
-		RuleType:        hcn.RuleTypeSwitch,
-		Priority:        200,
-	}
+	if allowNCToHostCommunication {
+		log.Printf("[Azure CNS] Allowing NC to Host connectivity")
+		// Endpoint ACL to allow the outbound traffic from the Apipa IP of the container to
+		// Apipa IP of the host only
+		outAllowToHostOnly := hcn.AclPolicySetting{
+			Protocols:       protocolList,
+			Action:          hcn.ActionTypeAllow,
+			Direction:       hcn.DirectionTypeOut,
+			LocalAddresses:  networkContainerApipaIP,
+			RemoteAddresses: hostApipaIP,
+			RuleType:        hcn.RuleTypeSwitch,
+			Priority:        200,
+		}
 
-	if err = addAclToEndpointPolicy(outAllowToHostOnly, endpoint.Policies); err != nil {
-		return nil, err
+		if err = addAclToEndpointPolicy(outAllowToHostOnly, endpoint.Policies); err != nil {
+			return nil, err
+		}
 	}
 
 	// Endpoint ACL to block all inbound traffic to the Apipa IP of the container
@@ -397,20 +399,23 @@ func configureHostNCApipaEndpoint(
 		return nil, err
 	}
 
-	// Endpoint ACL to allow the inbound traffic from the apipa IP of the host to
-	// the apipa IP of the container only
-	inAllowFromHostOnly := hcn.AclPolicySetting{
-		Protocols:       protocolList,
-		Action:          hcn.ActionTypeAllow,
-		Direction:       hcn.DirectionTypeIn,
-		LocalAddresses:  networkContainerApipaIP,
-		RemoteAddresses: hostApipaIP,
-		RuleType:        hcn.RuleTypeSwitch,
-		Priority:        200,
-	}
+	if allowHostToNCCommunication {
+		log.Printf("[Azure CNS] Allowing Host to NC connectivity")
+		// Endpoint ACL to allow the inbound traffic from the apipa IP of the host to
+		// the apipa IP of the container only
+		inAllowFromHostOnly := hcn.AclPolicySetting{
+			Protocols:       protocolList,
+			Action:          hcn.ActionTypeAllow,
+			Direction:       hcn.DirectionTypeIn,
+			LocalAddresses:  networkContainerApipaIP,
+			RemoteAddresses: hostApipaIP,
+			RuleType:        hcn.RuleTypeSwitch,
+			Priority:        200,
+		}
 
-	if err = addAclToEndpointPolicy(inAllowFromHostOnly, endpoint.Policies); err != nil {
-		return nil, err
+		if err = addAclToEndpointPolicy(inAllowFromHostOnly, endpoint.Policies); err != nil {
+			return nil, err
+		}
 	}
 
 	hcnRoute := hcn.Route{
@@ -435,7 +440,9 @@ func configureHostNCApipaEndpoint(
 // CreateHostNCApipaEndpoint creates the endpoint in the apipa network for host container connectivity
 func CreateHostNCApipaEndpoint(
 	networkContainerID string,
-	localIPConfiguration cns.IPConfiguration) (string, error) {
+	localIPConfiguration cns.IPConfiguration,
+	allowNCToHostCommunication bool,
+	allowHostToNCCommunication bool) (string, error) {
 	var (
 		network      *hcn.HostComputeNetwork
 		endpoint     *hcn.HostComputeEndpoint
@@ -448,7 +455,6 @@ func CreateHostNCApipaEndpoint(
 
 	// Return if the endpoint already exists
 	if endpoint, err = hcn.GetEndpointByName(endpointName); err != nil {
-		// TODO: these are failing due to hcn bug https://github.com/microsoft/hcsshim/pull/519/files
 		// If error is anything other than EndpointNotFoundError, return error.
 		if _, endpointNotFound := err.(hcn.EndpointNotFoundError); !endpointNotFound {
 			return "", fmt.Errorf("ERROR: Failed to query endpoint using GetEndpointByName "+
@@ -466,12 +472,16 @@ func CreateHostNCApipaEndpoint(
 		return "", err
 	}
 
-	if endpoint, err = configureHostNCApipaEndpoint(endpointName, network.Id, localIPConfiguration); err != nil {
+	if endpoint, err = configureHostNCApipaEndpoint(
+		endpointName,
+		network.Id,
+		localIPConfiguration,
+		allowNCToHostCommunication,
+		allowHostToNCCommunication); err != nil {
 		log.Errorf("[Azure CNS] Failed to configure HostNCApipaEndpoint: %s. Error: %v", endpointName, err)
 		return "", err
 	}
 
-	// Create the apipa endpoint
 	log.Printf("[Azure CNS] Creating HostNCApipaEndpoint for host container connectivity: %+v", endpoint)
 	if endpoint, err = endpoint.Create(); err != nil {
 		err = fmt.Errorf("Failed to create HostNCApipaEndpoint: %s. Error: %v", endpointName, err)
@@ -489,7 +499,7 @@ func getHostNCApipaEndpointName(
 	return hostNCApipaEndpointNamePrefix + "-" + networkContainerID
 }
 
-func deleteNetworkHnsV2(
+func deleteNetworkByIDHnsV2(
 	networkID string) error {
 	var (
 		network *hcn.HostComputeNetwork
@@ -500,7 +510,7 @@ func deleteNetworkHnsV2(
 		// If error is anything other than NetworkNotFoundError, return error.
 		// else log the error but don't return error because network is already deleted.
 		if _, networkNotFound := err.(hcn.NetworkNotFoundError); !networkNotFound {
-			return fmt.Errorf("[Azure CNS] deleteNetworkHnsV2 failed due to "+
+			return fmt.Errorf("[Azure CNS] deleteNetworkByIDHnsV2 failed due to "+
 				"error with GetNetworkByID: %v", err)
 		}
 
@@ -531,7 +541,7 @@ func deleteEndpointByNameHnsV2(
 		// If error is anything other than EndpointNotFoundError, return error.
 		// else log the error but don't return error because endpoint is already deleted.
 		if _, endpointNotFound := err.(hcn.EndpointNotFoundError); !endpointNotFound {
-			return fmt.Errorf("[Azure CNS] deleteEndpointHnsV2 failed due to "+
+			return fmt.Errorf("[Azure CNS] deleteEndpointByNameHnsV2 failed due to "+
 				"error with GetEndpointByName: %v", err)
 		}
 
@@ -579,7 +589,7 @@ func DeleteHostNCApipaEndpoint(
 
 		// Delete network if it doesn't have any endpoints
 		if len(endpoints) == 0 {
-			if err = deleteNetworkHnsV2(network.Id); err == nil {
+			if err = deleteNetworkByIDHnsV2(network.Id); err == nil {
 				// Delete the loopback adapter created for this network
 				networkcontainers.DeleteLoopbackAdapter(hostNCLoopbackAdapterName)
 			}

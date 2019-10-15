@@ -307,11 +307,11 @@ func (nw *network) newEndpointImplHnsV2(epInfo *EndpointInfo) (*endpoint, error)
 	}()
 
 	// If the Host - container connectivity is requested, create endpoint in HostNCApipaNetwork
-	//if epInfo.AllowInboundFromHostToNC || epInfo.AllowInboundFromNCToHost {
-	if err = nw.createHostNCApipaEndpoint(epInfo); err != nil {
-		return nil, fmt.Errorf("Failed to create HostNCApipaEndpoint due to error: %v", err)
+	if epInfo.AllowInboundFromHostToNC || epInfo.AllowInboundFromNCToHost {
+		if err = nw.createHostNCApipaEndpoint(epInfo); err != nil {
+			return nil, fmt.Errorf("Failed to create HostNCApipaEndpoint due to error: %v", err)
+		}
 	}
-	//}
 
 	var vlanid int
 	if epInfo.Data != nil {
@@ -327,17 +327,19 @@ func (nw *network) newEndpointImplHnsV2(epInfo *EndpointInfo) (*endpoint, error)
 
 	// Create the endpoint object.
 	ep := &endpoint{
-		Id:                 hcnEndpoint.Name,
-		HnsId:              hnsResponse.Id,
-		SandboxKey:         epInfo.ContainerID,
-		IfName:             epInfo.IfName,
-		IPAddresses:        epInfo.IPAddresses,
-		Gateways:           []net.IP{gateway},
-		DNS:                epInfo.DNS,
-		VlanID:             vlanid,
-		EnableSnatOnHost:   epInfo.EnableSnatOnHost,
-		NetNs:              epInfo.NetNsPath,
-		NetworkContainerID: epInfo.NetworkContainerID,
+		Id:               hcnEndpoint.Name,
+		HnsId:            hnsResponse.Id,
+		SandboxKey:       epInfo.ContainerID,
+		IfName:           epInfo.IfName,
+		IPAddresses:      epInfo.IPAddresses,
+		Gateways:         []net.IP{gateway},
+		DNS:              epInfo.DNS,
+		VlanID:           vlanid,
+		EnableSnatOnHost: epInfo.EnableSnatOnHost,
+		NetNs:            epInfo.NetNsPath,
+		AllowInboundFromNCToHost: epInfo.AllowInboundFromNCToHost,
+		AllowInboundFromHostToNC: epInfo.AllowInboundFromHostToNC,
+		NetworkContainerID:       epInfo.NetworkContainerID,
 	}
 
 	for _, route := range epInfo.Routes {
@@ -380,8 +382,7 @@ func (nw *network) deleteEndpointImplHnsV2(ep *endpoint) error {
 
 	log.Printf("[net] deleteEndpointImplHnsV2 DELETE id:%+v", ep)
 
-	//if epInfo.AllowInboundFromHostToNC || epInfo.AllowInboundFromNCToHost {
-	{
+	if ep.AllowInboundFromHostToNC || ep.AllowInboundFromNCToHost {
 		if err = nw.deleteHostNCApipaEndpoint(ep.NetworkContainerID); err != nil {
 			log.Errorf("[net] Failed to delete HostNCApipaEndpoint due to error: %v", err)
 			return err

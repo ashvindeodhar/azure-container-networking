@@ -153,7 +153,6 @@ func (cnsClient *CNSClient) CreateHostNCApipaEndpoint(
 func (cnsClient *CNSClient) DeleteHostNCApipaEndpoint(networkContainerID string) error {
 	var body bytes.Buffer
 
-	// TODO: Move this to create a reusable http client.
 	httpc := &http.Client{}
 	url := cnsClient.connectionURL + cns.DeleteHostNCApipaEndpointPath
 	log.Printf("DeleteHostNCApipaEndpoint url: %v", url)
