@@ -312,7 +312,7 @@ func createHostNCApipaNetwork(
 
 func addAclToEndpointPolicy(
 	aclPolicySetting hcn.AclPolicySetting,
-	endpointPolicies []hcn.EndpointPolicy) error {
+	endpointPolicies *[]hcn.EndpointPolicy) error {
 	var (
 		rawJSON []byte
 		err     error
@@ -327,9 +327,98 @@ func addAclToEndpointPolicy(
 		Settings: rawJSON,
 	}
 
-	endpointPolicies = append(endpointPolicies, endpointPolicy)
+	*endpointPolicies = append(*endpointPolicies, endpointPolicy)
 
 	return nil
+}
+
+func configureAclSettingHostNCApipaEndpoint(
+	protocolList []string,
+	networkContainerApipaIP string,
+	hostApipaIP string,
+	allowNCToHostCommunication bool,
+	allowHostToNCCommunication bool) ([]hcn.EndpointPolicy, error) {
+	var (
+		err              error
+		endpointPolicies []hcn.EndpointPolicy
+	)
+
+	if allowNCToHostCommunication {
+		log.Printf("[Azure CNS] Allowing NC to Host connectivity")
+	}
+
+	if allowHostToNCCommunication {
+		log.Printf("[Azure CNS] Allowing Host to NC connectivity")
+	}
+
+	// Iterate thru the protocol list and add ACL for each
+	for _, protocol := range protocolList {
+		// Endpoint ACL to block all outbound traffic from the Apipa IP of the container
+		outBlockAll := hcn.AclPolicySetting{
+			Protocols:      protocol,
+			Action:         hcn.ActionTypeBlock,
+			Direction:      hcn.DirectionTypeOut,
+			LocalAddresses: networkContainerApipaIP,
+			RuleType:       hcn.RuleTypeSwitch,
+			Priority:       2000,
+		}
+
+		if err = addAclToEndpointPolicy(outBlockAll, &endpointPolicies); err != nil {
+			return nil, err
+		}
+
+		if allowNCToHostCommunication {
+			// Endpoint ACL to allow the outbound traffic from the Apipa IP of the container to
+			// Apipa IP of the host only
+			outAllowToHostOnly := hcn.AclPolicySetting{
+				Protocols:       protocol,
+				Action:          hcn.ActionTypeAllow,
+				Direction:       hcn.DirectionTypeOut,
+				LocalAddresses:  networkContainerApipaIP,
+				RemoteAddresses: hostApipaIP,
+				RuleType:        hcn.RuleTypeSwitch,
+				Priority:        200,
+			}
+
+			if err = addAclToEndpointPolicy(outAllowToHostOnly, &endpointPolicies); err != nil {
+				return nil, err
+			}
+		}
+
+		// Endpoint ACL to block all inbound traffic to the Apipa IP of the container
+		inBlockAll := hcn.AclPolicySetting{
+			Protocols:      protocol,
+			Action:         hcn.ActionTypeBlock,
+			Direction:      hcn.DirectionTypeIn,
+			LocalAddresses: networkContainerApipaIP,
+			RuleType:       hcn.RuleTypeSwitch,
+			Priority:       2000,
+		}
+
+		if err = addAclToEndpointPolicy(inBlockAll, &endpointPolicies); err != nil {
+			return nil, err
+		}
+
+		if allowHostToNCCommunication {
+			// Endpoint ACL to allow the inbound traffic from the apipa IP of the host to
+			// the apipa IP of the container only
+			inAllowFromHostOnly := hcn.AclPolicySetting{
+				Protocols:       protocol,
+				Action:          hcn.ActionTypeAllow,
+				Direction:       hcn.DirectionTypeIn,
+				LocalAddresses:  networkContainerApipaIP,
+				RemoteAddresses: hostApipaIP,
+				RuleType:        hcn.RuleTypeSwitch,
+				Priority:        200,
+			}
+
+			if err = addAclToEndpointPolicy(inAllowFromHostOnly, &endpointPolicies); err != nil {
+				return nil, err
+			}
+		}
+	}
+
+	return endpointPolicies, nil
 }
 
 func configureHostNCApipaEndpoint(
@@ -338,7 +427,6 @@ func configureHostNCApipaEndpoint(
 	localIPConfiguration cns.IPConfiguration,
 	allowNCToHostCommunication bool,
 	allowHostToNCCommunication bool) (*hcn.HostComputeEndpoint, error) {
-	var err error
 	endpoint := &hcn.HostComputeEndpoint{
 		Name:               endpointName,
 		HostComputeNetwork: networkID,
@@ -350,72 +438,21 @@ func configureHostNCApipaEndpoint(
 
 	networkContainerApipaIP := localIPConfiguration.IPSubnet.IPAddress
 	hostApipaIP := localIPConfiguration.GatewayIPAddress
-	protocolList := fmt.Sprintf("%s,%s,%s", protocolICMPv4, protocolTCP, protocolUDP)
+	protocolList := []string{protocolICMPv4, protocolTCP, protocolUDP}
 
-	// Endpoint ACL to block all outbound traffic from the Apipa IP of the container
-	outBlockAll := hcn.AclPolicySetting{
-		Protocols:      protocolList,
-		Action:         hcn.ActionTypeBlock,
-		Direction:      hcn.DirectionTypeOut,
-		LocalAddresses: networkContainerApipaIP,
-		RuleType:       hcn.RuleTypeSwitch,
-		Priority:       2000,
+	endpointPolicies, err := configureAclSettingHostNCApipaEndpoint(
+		protocolList,
+		networkContainerApipaIP,
+		hostApipaIP,
+		allowNCToHostCommunication,
+		allowHostToNCCommunication)
+
+	if err != nil {
+		log.Errorf("[Azure CNS] Failed to configure ACL for HostNCApipaEndpoint. Error: %v", err)
 	}
 
-	if err = addAclToEndpointPolicy(outBlockAll, endpoint.Policies); err != nil {
-		return nil, err
-	}
-
-	if allowNCToHostCommunication {
-		log.Printf("[Azure CNS] Allowing NC to Host connectivity")
-		// Endpoint ACL to allow the outbound traffic from the Apipa IP of the container to
-		// Apipa IP of the host only
-		outAllowToHostOnly := hcn.AclPolicySetting{
-			Protocols:       protocolList,
-			Action:          hcn.ActionTypeAllow,
-			Direction:       hcn.DirectionTypeOut,
-			LocalAddresses:  networkContainerApipaIP,
-			RemoteAddresses: hostApipaIP,
-			RuleType:        hcn.RuleTypeSwitch,
-			Priority:        200,
-		}
-
-		if err = addAclToEndpointPolicy(outAllowToHostOnly, endpoint.Policies); err != nil {
-			return nil, err
-		}
-	}
-
-	// Endpoint ACL to block all inbound traffic to the Apipa IP of the container
-	inBlockAll := hcn.AclPolicySetting{
-		Protocols:      protocolList,
-		Action:         hcn.ActionTypeBlock,
-		Direction:      hcn.DirectionTypeIn,
-		LocalAddresses: networkContainerApipaIP,
-		RuleType:       hcn.RuleTypeSwitch,
-		Priority:       2000,
-	}
-
-	if err = addAclToEndpointPolicy(inBlockAll, endpoint.Policies); err != nil {
-		return nil, err
-	}
-
-	if allowHostToNCCommunication {
-		log.Printf("[Azure CNS] Allowing Host to NC connectivity")
-		// Endpoint ACL to allow the inbound traffic from the apipa IP of the host to
-		// the apipa IP of the container only
-		inAllowFromHostOnly := hcn.AclPolicySetting{
-			Protocols:       protocolList,
-			Action:          hcn.ActionTypeAllow,
-			Direction:       hcn.DirectionTypeIn,
-			LocalAddresses:  networkContainerApipaIP,
-			RemoteAddresses: hostApipaIP,
-			RuleType:        hcn.RuleTypeSwitch,
-			Priority:        200,
-		}
-
-		if err = addAclToEndpointPolicy(inAllowFromHostOnly, endpoint.Policies); err != nil {
-			return nil, err
-		}
+	for _, endpointPolicy := range endpointPolicies {
+		endpoint.Policies = append(endpoint.Policies, endpointPolicy)
 	}
 
 	hcnRoute := hcn.Route{
