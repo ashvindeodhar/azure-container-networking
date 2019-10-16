@@ -19,15 +19,21 @@ import (
 
 const (
 	// HNS network types.
-	hnsL2bridge      = "l2bridge"
-	hnsL2tunnel      = "l2tunnel"
-	CnetAddressSpace = "cnetAddressSpace"
+	hnsL2bridge            = "l2bridge"
+	hnsL2tunnel            = "l2tunnel"
+	CnetAddressSpace       = "cnetAddressSpace"
+	vEthernetAdapterPrefix = "vEthernet"
+	baseDecimal            = 10
+	bitSize                = 32
+	defaultRouteCIDR       = "0.0.0.0/0"
 )
 
 // Windows implementation of route.
 type route interface{}
 
 // UseHnsV2 indicates whether to use HNSv1 or HNSv2
+// HNSv2 should be used if the NetNs is a valid GUID and if the platform
+// has HCN which supports HNSv2 API.
 func UseHnsV2(netNs string) (bool, error) {
 	// Check if the netNs is a valid GUID to decide on HNSv1 or HNSv2
 	useHnsV2 := false
@@ -47,7 +53,7 @@ func (nm *networkManager) newNetworkImplHnsV1(nwInfo *NetworkInfo, extIf *extern
 	var vlanid int
 	networkAdapterName := extIf.Name
 	// FixMe: Find a better way to check if a nic that is selected is not part of a vSwitch
-	if strings.HasPrefix(networkAdapterName, "vEthernet") {
+	if strings.HasPrefix(networkAdapterName, vEthernetAdapterPrefix) {
 		networkAdapterName = ""
 	}
 	// Initialize HNS network.
@@ -64,7 +70,7 @@ func (nm *networkManager) newNetworkImplHnsV1(nwInfo *NetworkInfo, extIf *extern
 		vlanPolicy := hcsshim.VlanPolicy{
 			Type: "VLAN",
 		}
-		vlanID, _ := strconv.ParseUint(opt[VlanIDKey].(string), 10, 32)
+		vlanID, _ := strconv.ParseUint(opt[VlanIDKey].(string), baseDecimal, bitSize)
 		vlanPolicy.VLAN = uint(vlanID)
 
 		serializedVlanPolicy, _ := json.Marshal(vlanPolicy)
@@ -153,7 +159,7 @@ func (nm *networkManager) configureHcnNetwork(nwInfo *NetworkInfo, extIf *extern
 
 	// Set hcn network adaptor name policy
 	// FixMe: Find a better way to check if a nic that is selected is not part of a vSwitch
-	if !strings.HasPrefix(extIf.Name, "vEthernet") {
+	if !strings.HasPrefix(extIf.Name, vEthernetAdapterPrefix) {
 		netAdapterNamePolicy, err := policy.GetHcnNetAdapterPolicy(extIf.Name)
 		if err != nil {
 			log.Printf("[net] Failed to serialize network adapter policy due to error: %v", err)
@@ -164,12 +170,15 @@ func (nm *networkManager) configureHcnNetwork(nwInfo *NetworkInfo, extIf *extern
 	}
 
 	// Set hcn subnet policy
-	var vlanid int
-	var subnetPolicy []byte
+	var (
+		vlanid       int
+		subnetPolicy []byte
+	)
+
 	opt, _ := nwInfo.Options[genericData].(map[string]interface{})
 	if opt != nil && opt[VlanIDKey] != nil {
 		var err error
-		vlanID, _ := strconv.ParseUint(opt[VlanIDKey].(string), 10, 32)
+		vlanID, _ := strconv.ParseUint(opt[VlanIDKey].(string), baseDecimal, bitSize)
 		subnetPolicy, err = policy.SerializeHcnSubnetVlanPolicy((uint32)(vlanID))
 		if err != nil {
 			log.Printf("[net] Failed to serialize subnet vlan policy due to error: %v", err)
@@ -193,10 +202,11 @@ func (nm *networkManager) configureHcnNetwork(nwInfo *NetworkInfo, extIf *extern
 	for _, subnet := range nwInfo.Subnets {
 		hnsSubnet := hcn.Subnet{
 			IpAddressPrefix: subnet.Prefix.String(),
+			// Set the Gateway route
 			Routes: []hcn.Route{
 				hcn.Route{
 					NextHop:           subnet.Gateway.String(),
-					DestinationPrefix: "0.0.0.0/0",
+					DestinationPrefix: defaultRouteCIDR,
 				},
 			},
 		}
@@ -233,7 +243,7 @@ func (nm *networkManager) newNetworkImplHnsV2(nwInfo *NetworkInfo, extIf *extern
 	var vlanid int
 	opt, _ := nwInfo.Options[genericData].(map[string]interface{})
 	if opt != nil && opt[VlanIDKey] != nil {
-		vlanID, _ := strconv.ParseInt(opt[VlanIDKey].(string), 10, 32)
+		vlanID, _ := strconv.ParseInt(opt[VlanIDKey].(string), baseDecimal, bitSize)
 		vlanid = (int)(vlanID)
 	}
 
