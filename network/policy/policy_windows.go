@@ -18,8 +18,14 @@ const (
 	protocolUdp = 17
 
 	// CnetAddressSpace indicates constant for the key string
-	cnetAddressSpace = "cnetAddressSpace"
+	CnetAddressSpace = "cnetAddressSpace"
 )
+
+type KVPairRoutePolicy struct {
+	Type              CNIPolicyType   `json:"Type"`
+	DestinationPrefix json.RawMessage `json:"DestinationPrefix"`
+	NeedEncap         json.RawMessage `json:"NeedEncap"`
+}
 
 type KVPairPortMapping struct {
 	Type         CNIPolicyType `json:"Type"`
@@ -111,8 +117,8 @@ func SerializeOutBoundNATPolicy(policy Policy, epInfoData map[string]interface{}
 		}
 	}
 
-	if epInfoData[cnetAddressSpace] != nil {
-		if cnetAddressSpace := epInfoData[cnetAddressSpace].([]string); cnetAddressSpace != nil {
+	if epInfoData[CnetAddressSpace] != nil {
+		if cnetAddressSpace := epInfoData[CnetAddressSpace].([]string); cnetAddressSpace != nil {
 			for _, ipAddress := range cnetAddressSpace {
 				outBoundNatPolicy.Exceptions = append(outBoundNatPolicy.Exceptions, ipAddress)
 			}
@@ -164,22 +170,22 @@ func SerializeHcnSubnetVlanPolicy(vlanID uint32) ([]byte, error) {
 		IsolationId: vlanID,
 	}
 
-	vlanPolicySettingJSON, err := json.Marshal(vlanPolicySetting)
+	vlanPolicySettingBytes, err := json.Marshal(vlanPolicySetting)
 	if err != nil {
 		return nil, err
 	}
 
 	vlanSubnetPolicy := &hcn.SubnetPolicy{
 		Type:     hcn.VLAN,
-		Settings: vlanPolicySettingJSON,
+		Settings: vlanPolicySettingBytes,
 	}
 
-	vlanSubnetPolicyJSON, err := json.Marshal(vlanSubnetPolicy)
+	vlanSubnetPolicyBytes, err := json.Marshal(vlanSubnetPolicy)
 	if err != nil {
 		return nil, err
 	}
 
-	return vlanSubnetPolicyJSON, nil
+	return vlanSubnetPolicyBytes, nil
 }
 
 // GetHcnNetAdapterPolicy returns network adapter name policy.
@@ -192,12 +198,12 @@ func GetHcnNetAdapterPolicy(networkAdapterName string) (hcn.NetworkPolicy, error
 		NetworkAdapterName: networkAdapterName,
 	}
 
-	netAdapterNamePolicySettingJSON, err := json.Marshal(netAdapterNamePolicySetting)
+	netAdapterNamePolicySettingBytes, err := json.Marshal(netAdapterNamePolicySetting)
 	if err != nil {
 		return networkAdapterNamePolicy, err
 	}
 
-	networkAdapterNamePolicy.Settings = netAdapterNamePolicySettingJSON
+	networkAdapterNamePolicy.Settings = netAdapterNamePolicySettingBytes
 
 	return networkAdapterNamePolicy, nil
 }
@@ -221,8 +227,8 @@ func GetHcnOutBoundNATPolicy(policy Policy, epInfoData map[string]interface{}) (
 		}
 	}
 
-	if epInfoData[cnetAddressSpace] != nil {
-		if cnetAddressSpace := epInfoData[cnetAddressSpace].([]string); cnetAddressSpace != nil {
+	if epInfoData[CnetAddressSpace] != nil {
+		if cnetAddressSpace := epInfoData[CnetAddressSpace].([]string); cnetAddressSpace != nil {
 			for _, ipAddress := range cnetAddressSpace {
 				outBoundNATPolicySetting.Exceptions = append(outBoundNATPolicySetting.Exceptions, ipAddress)
 			}
@@ -230,12 +236,12 @@ func GetHcnOutBoundNATPolicy(policy Policy, epInfoData map[string]interface{}) (
 	}
 
 	if outBoundNATPolicySetting.Exceptions != nil {
-		outBoundNATPolicySettingJSON, err := json.Marshal(outBoundNATPolicySetting)
+		outBoundNATPolicySettingBytes, err := json.Marshal(outBoundNATPolicySetting)
 		if err != nil {
 			return outBoundNATPolicy, err
 		}
 
-		outBoundNATPolicy.Settings = outBoundNATPolicySettingJSON
+		outBoundNATPolicy.Settings = outBoundNATPolicySettingBytes
 		return outBoundNATPolicy, nil
 	}
 
@@ -248,13 +254,7 @@ func GetHcnRoutePolicy(policy Policy) (hcn.EndpointPolicy, error) {
 		Type: hcn.SDNRoute,
 	}
 
-	type KVPair struct {
-		Type              CNIPolicyType   `json:"Type"`
-		DestinationPrefix json.RawMessage `json:"DestinationPrefix"`
-		NeedEncap         json.RawMessage `json:"NeedEncap"`
-	}
-
-	var data KVPair
+	var data KVPairRoutePolicy
 	if err := json.Unmarshal(policy.Data, &data); err != nil {
 		return routePolicy, err
 	}
@@ -276,12 +276,12 @@ func GetHcnRoutePolicy(policy Policy) (hcn.EndpointPolicy, error) {
 			NeedEncap:         needEncap,
 		}
 
-		routePolicySettingJSON, err := json.Marshal(sdnRoutePolicySetting)
+		routePolicySettingBytes, err := json.Marshal(sdnRoutePolicySetting)
 		if err != nil {
 			return routePolicy, err
 		}
 
-		routePolicy.Settings = routePolicySettingJSON
+		routePolicy.Settings = routePolicySettingBytes
 
 		return routePolicy, nil
 	}
@@ -316,12 +316,12 @@ func GetHcnPortMappingPolicy(policy Policy) (hcn.EndpointPolicy, error) {
 		return portMappingPolicy, fmt.Errorf("Invalid protocol: %s for port mapping", protocol)
 	}
 
-	portMappingPolicySettingJSON, err := json.Marshal(portMappingPolicySetting)
+	portMappingPolicySettingBytes, err := json.Marshal(portMappingPolicySetting)
 	if err != nil {
 		return portMappingPolicy, err
 	}
 
-	portMappingPolicy.Settings = portMappingPolicySettingJSON
+	portMappingPolicy.Settings = portMappingPolicySettingBytes
 
 	return portMappingPolicy, nil
 }
