@@ -381,8 +381,6 @@ func (nw *network) deleteEndpointImplHnsV2(ep *endpoint) error {
 		err         error
 	)
 
-	log.Printf("[net] deleteEndpointImplHnsV2 DELETE id:%+v", ep)
-
 	if ep.AllowInboundFromHostToNC || ep.AllowInboundFromNCToHost {
 		if err = nw.deleteHostNCApipaEndpoint(ep.NetworkContainerID); err != nil {
 			log.Errorf("[net] Failed to delete HostNCApipaEndpoint due to error: %v", err)
