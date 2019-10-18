@@ -241,7 +241,8 @@ func (nw *network) createHostNCApipaEndpoint(epInfo *EndpointInfo) error {
 		return err
 	}
 
-	log.Printf("[net] Creating HostNCApipaEndpoint for host container connectivity")
+	log.Printf("[net] Creating HostNCApipaEndpoint for host container connectivity for NC: %s",
+		epInfo.NetworkContainerID)
 
 	if hostNCApipaEndpointID, err =
 		cnsClient.CreateHostNCApipaEndpoint(epInfo.NetworkContainerID); err != nil {

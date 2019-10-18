@@ -60,6 +60,12 @@ const (
 
 	// protocolICMPv4 indicates the ICMPv4 protocol identifier in HCN
 	protocolICMPv4 = "1"
+
+	// aclPriority2000 indicates the ACL priority of 2000
+	aclPriority2000 = 2000
+
+	// aclPriority200 indicates the ACL priority of 200
+	aclPriority200 = 200
 )
 
 var (
@@ -219,6 +225,10 @@ func configureHostNCApipaNetwork(localIPConfiguration cns.IPConfiguration) (*hcn
 	}
 
 	// Calculate subnet prefix
+	// Following code calculates the subnet prefix from localIPConfiguration IP
+	// e.g. IP: 169.254.128.7 Prefix length: 17 then resulting subnet prefix: 169.254.128.0/17
+	// subnetPrefix: ffff8000
+	// subnetPrefix.IP: 169.254.128.0
 	var (
 		subnetPrefix    net.IPNet
 		subnetPrefixStr string
@@ -344,11 +354,11 @@ func configureAclSettingHostNCApipaEndpoint(
 	)
 
 	if allowNCToHostCommunication {
-		log.Printf("[Azure CNS] Allowing NC to Host connectivity")
+		log.Printf("[Azure CNS] Allowing NC (%s) to Host (%s) connectivity", networkContainerApipaIP, hostApipaIP)
 	}
 
 	if allowHostToNCCommunication {
-		log.Printf("[Azure CNS] Allowing Host to NC connectivity")
+		log.Printf("[Azure CNS] Allowing Host (%s) to NC (%s) connectivity", hostApipaIP, networkContainerApipaIP)
 	}
 
 	// Iterate thru the protocol list and add ACL for each
@@ -360,7 +370,7 @@ func configureAclSettingHostNCApipaEndpoint(
 			Direction:      hcn.DirectionTypeOut,
 			LocalAddresses: networkContainerApipaIP,
 			RuleType:       hcn.RuleTypeSwitch,
-			Priority:       2000,
+			Priority:       aclPriority2000,
 		}
 
 		if err = addAclToEndpointPolicy(outBlockAll, &endpointPolicies); err != nil {
@@ -377,7 +387,7 @@ func configureAclSettingHostNCApipaEndpoint(
 				LocalAddresses:  networkContainerApipaIP,
 				RemoteAddresses: hostApipaIP,
 				RuleType:        hcn.RuleTypeSwitch,
-				Priority:        200,
+				Priority:        aclPriority200,
 			}
 
 			if err = addAclToEndpointPolicy(outAllowToHostOnly, &endpointPolicies); err != nil {
@@ -392,7 +402,7 @@ func configureAclSettingHostNCApipaEndpoint(
 			Direction:      hcn.DirectionTypeIn,
 			LocalAddresses: networkContainerApipaIP,
 			RuleType:       hcn.RuleTypeSwitch,
-			Priority:       2000,
+			Priority:       aclPriority2000,
 		}
 
 		if err = addAclToEndpointPolicy(inBlockAll, &endpointPolicies); err != nil {
@@ -409,7 +419,7 @@ func configureAclSettingHostNCApipaEndpoint(
 				LocalAddresses:  networkContainerApipaIP,
 				RemoteAddresses: hostApipaIP,
 				RuleType:        hcn.RuleTypeSwitch,
-				Priority:        200,
+				Priority:        aclPriority200,
 			}
 
 			if err = addAclToEndpointPolicy(inAllowFromHostOnly, &endpointPolicies); err != nil {
@@ -449,6 +459,7 @@ func configureHostNCApipaEndpoint(
 
 	if err != nil {
 		log.Errorf("[Azure CNS] Failed to configure ACL for HostNCApipaEndpoint. Error: %v", err)
+		return nil, err
 	}
 
 	for _, endpointPolicy := range endpointPolicies {
@@ -508,6 +519,9 @@ func CreateHostNCApipaEndpoint(
 		log.Errorf("[Azure CNS] Failed to create HostNCApipaNetwork. Error: %v", err)
 		return "", err
 	}
+
+	log.Printf("[Azure CNS] Configuring HostNCApipaEndpoint: %s, in network: %s with localIPConfig: %+v",
+		endpointName, network.Id, localIPConfiguration)
 
 	if endpoint, err = configureHostNCApipaEndpoint(
 		endpointName,
@@ -605,12 +619,14 @@ func DeleteHostNCApipaEndpoint(
 	namedLock.LockAcquire(endpointName)
 	defer namedLock.LockRelease(endpointName)
 
+	log.Debugf("[Azure CNS] Deleting HostNCApipaEndpoint: %s", endpointName)
+
 	if err := deleteEndpointByNameHnsV2(endpointName); err != nil {
 		log.Errorf("[Azure CNS] Failed to delete HostNCApipaEndpoint: %s. Error: %v", endpointName, err)
 		return err
 	}
 
-	log.Debugf("[Azure CNS] Successfully deleted HostNCApipaEndpoint: %v", endpointName)
+	log.Debugf("[Azure CNS] Successfully deleted HostNCApipaEndpoint: %s", endpointName)
 
 	namedLock.LockAcquire(hostNCApipaNetworkName)
 	defer namedLock.LockRelease(hostNCApipaNetworkName)
@@ -626,6 +642,7 @@ func DeleteHostNCApipaEndpoint(
 
 		// Delete network if it doesn't have any endpoints
 		if len(endpoints) == 0 {
+			log.Debugf("[Azure CNS] Deleting network with ID: %s", network.Id)
 			if err = deleteNetworkByIDHnsV2(network.Id); err == nil {
 				// Delete the loopback adapter created for this network
 				networkcontainers.DeleteLoopbackAdapter(hostNCLoopbackAdapterName)

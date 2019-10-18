@@ -2,6 +2,8 @@ package common
 
 import (
 	"sync"
+
+	"github.com/Azure/azure-container-networking/log"
 )
 
 // NamedLock holds a mutex and a map of locks. Mutex is used to
@@ -51,6 +53,8 @@ func (namedLock *NamedLock) LockRelease(lockName string) {
 		if lock.refCount == 0 {
 			delete(namedLock.lockMap, lockName)
 		}
+	} else {
+		log.Printf("[Azure CNS] Attempt to unlock: %s without acquiring the lock", lockName)
 	}
 }
 

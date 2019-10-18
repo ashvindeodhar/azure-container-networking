@@ -107,7 +107,7 @@ func (cnsClient *CNSClient) CreateHostNCApipaEndpoint(
 
 	httpc := &http.Client{}
 	url := cnsClient.connectionURL + cns.CreateHostNCApipaEndpointPath
-	log.Printf("CreateHostNCApipaEndpoint url: %v", url)
+	log.Printf("CreateHostNCApipaEndpoint url: %v for NC: %s", url, networkContainerID)
 
 	payload := &cns.CreateHostNCApipaEndpointRequest{
 		NetworkContainerID: networkContainerID,
@@ -155,7 +155,7 @@ func (cnsClient *CNSClient) DeleteHostNCApipaEndpoint(networkContainerID string)
 
 	httpc := &http.Client{}
 	url := cnsClient.connectionURL + cns.DeleteHostNCApipaEndpointPath
-	log.Printf("DeleteHostNCApipaEndpoint url: %v", url)
+	log.Printf("DeleteHostNCApipaEndpoint url: %v for NC: %s", url, networkContainerID)
 
 	payload := &cns.DeleteHostNCApipaEndpointRequest{
 		NetworkContainerID: networkContainerID,

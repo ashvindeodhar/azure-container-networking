@@ -242,8 +242,10 @@ func (plugin *netPlugin) Add(args *cniSkel.CmdArgs) error {
 		return err
 	}
 
-	// Initialize CNSClient
-	cnsclient.InitCnsClient(nwCfg.CNSUrl)
+	if nwCfg.MultiTenancy {
+		// Initialize CNSClient
+		cnsclient.InitCnsClient(nwCfg.CNSUrl)
+	}
 
 	k8sContainerID := args.ContainerID
 	if len(k8sContainerID) == 0 {
@@ -555,8 +557,10 @@ func (plugin *netPlugin) Get(args *cniSkel.CmdArgs) error {
 		return err
 	}
 
-	// Initialize CNSClient
-	cnsclient.InitCnsClient(nwCfg.CNSUrl)
+	if nwCfg.MultiTenancy {
+		// Initialize CNSClient
+		cnsclient.InitCnsClient(nwCfg.CNSUrl)
+	}
 
 	// Initialize values from network config.
 	if networkId, err = getNetworkName(k8sPodName, k8sNamespace, args.IfName, nwCfg); err != nil {
@@ -633,8 +637,10 @@ func (plugin *netPlugin) Delete(args *cniSkel.CmdArgs) error {
 		log.Printf("[cni-net] Failed to get POD info due to error: %v", err)
 	}
 
-	// Initialize CNSClient
-	cnsclient.InitCnsClient(nwCfg.CNSUrl)
+	if nwCfg.MultiTenancy {
+		// Initialize CNSClient
+		cnsclient.InitCnsClient(nwCfg.CNSUrl)
+	}
 
 	// Initialize values from network config.
 	if networkId, err = getNetworkName(k8sPodName, k8sNamespace, args.IfName, nwCfg); err != nil {
