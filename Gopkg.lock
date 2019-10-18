@@ -2,6 +2,14 @@
 
 
 [[projects]]
+  digest = "1:57d862d83c6c53d8d645827878df9667ac3d1ac7f22717190a698110dfb7aabe"
+  name = "code.cloudfoundry.org/clock"
+  packages = ["."]
+  pruneopts = "UT"
+  revision = "02e53af36e6c978af692887ed449b74026d76fec"
+  version = "1.0.0"
+
+[[projects]]
   digest = "1:f9ae348e1f793dcf9ed930ed47136a67343dbd6809c5c91391322267f4476892"
   name = "github.com/Microsoft/go-winio"
   packages = ["."]
@@ -153,6 +161,16 @@
   version = "v1.0.2"
 
 [[projects]]
+  digest = "1:2d54ea234b5487eb9c651f55d8ccf30978b1c2116e2f547ba7cf8cb0932bacc7"
+  name = "github.com/microsoft/ApplicationInsights-Go"
+  packages = [
+    "appinsights",
+    "appinsights/contracts",
+  ]
+  pruneopts = "UT"
+  revision = "d813d7725313000ad1b71627b8951323635f0572"
+
+[[projects]]
   digest = "1:33422d238f147d247752996a26574ac48dcf472976eda7f5134015f06bf16563"
   name = "github.com/modern-go/concurrent"
   packages = ["."]
@@ -167,6 +185,14 @@
   pruneopts = "UT"
   revision = "4b7aa43c6742a2c18fdef89dd197aaae7dac7ccd"
   version = "1.0.1"
+
+[[projects]]
+  digest = "1:274f67cb6fed9588ea2521ecdac05a6d62a8c51c074c1fccc6a49a40ba80e925"
+  name = "github.com/satori/go.uuid"
+  packages = ["."]
+  pruneopts = "UT"
+  revision = "f58768cc1a7a7e77a3bd49e98cdd21419399b6a3"
+  version = "v1.2.0"
 
 [[projects]]
   digest = "1:fd61cf4ae1953d55df708acb6b91492d538f49c305b364a014049914495db426"
@@ -572,6 +598,7 @@
     "github.com/docker/libnetwork/driverapi",
     "github.com/docker/libnetwork/drivers/remote/api",
     "github.com/google/uuid",
+    "github.com/microsoft/ApplicationInsights-Go/appinsights",
     "golang.org/x/sys/unix",
     "k8s.io/api/core/v1",
     "k8s.io/api/networking/v1",

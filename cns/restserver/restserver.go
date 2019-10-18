@@ -1036,6 +1036,8 @@ func (service *HTTPRestService) saveNetworkContainerGoalState(req cns.CreateNetw
 	case cns.JobObject:
 		fallthrough
 	case cns.COW:
+		fallthrough
+	case cns.WebApps:
 		switch service.state.OrchestratorType {
 		case cns.Kubernetes:
 			fallthrough
@@ -1046,6 +1048,8 @@ func (service *HTTPRestService) saveNetworkContainerGoalState(req cns.CreateNetw
 		case cns.DBforPostgreSQL:
 			fallthrough
 		case cns.AzureFirstParty:
+			fallthrough
+		case cns.WebApps:
 			var podInfo cns.KubernetesPodInfo
 			err := json.Unmarshal(req.OrchestratorContext, &podInfo)
 			if err != nil {
