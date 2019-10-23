@@ -193,8 +193,8 @@ func (plugin *netPlugin) Add(args *cniSkel.CmdArgs) error {
 		nwDNSInfo        network.DNSInfo
 	)
 
-	log.Printf("[cni-net] Processing ADD command with args {ContainerID:%v Netns:%v IfName:%v Args:%v Path:%v}.",
-		args.ContainerID, args.Netns, args.IfName, args.Args, args.Path)
+	log.Printf("[cni-net] Processing ADD command with args {ContainerID:%v Netns:%v IfName:%v Args:%v Path:%v StdinData:%s}.",
+		args.ContainerID, args.Netns, args.IfName, args.Args, args.Path, args.StdinData)
 
 	// Parse network configuration from stdin.
 	nwCfg, err = cni.ParseNetworkConfig(args.StdinData)
@@ -240,6 +240,11 @@ func (plugin *netPlugin) Add(args *cniSkel.CmdArgs) error {
 	k8sPodName, k8sNamespace, err := plugin.getPodInfo(args.Args)
 	if err != nil {
 		return err
+	}
+
+	if nwCfg.MultiTenancy {
+		// Initialize CNSClient
+		cnsclient.InitCnsClient(nwCfg.CNSUrl)
 	}
 
 	k8sContainerID := args.ContainerID
@@ -298,7 +303,7 @@ func (plugin *netPlugin) Add(args *cniSkel.CmdArgs) error {
 		 */
 		epInfo, _ := plugin.nm.GetEndpointInfo(networkId, endpointId)
 		if epInfo != nil {
-			resultConsAdd, errConsAdd := handleConsecutiveAdd(args.ContainerID, endpointId, nwInfo, nwCfg)
+			resultConsAdd, errConsAdd := handleConsecutiveAdd(args, endpointId, nwInfo, nwCfg)
 			if errConsAdd != nil {
 				log.Printf("handleConsecutiveAdd failed with error %v", errConsAdd)
 				result = resultConsAdd
@@ -390,6 +395,7 @@ func (plugin *netPlugin) Add(args *cniSkel.CmdArgs) error {
 			EnableSnatOnHost: nwCfg.EnableSnatOnHost,
 			DNS:              nwDNSInfo,
 			Policies:         policies,
+			NetNs:            args.Netns,
 		}
 
 		nwInfo.Options = make(map[string]interface{})
@@ -551,6 +557,11 @@ func (plugin *netPlugin) Get(args *cniSkel.CmdArgs) error {
 		return err
 	}
 
+	if nwCfg.MultiTenancy {
+		// Initialize CNSClient
+		cnsclient.InitCnsClient(nwCfg.CNSUrl)
+	}
+
 	// Initialize values from network config.
 	if networkId, err = getNetworkName(k8sPodName, k8sNamespace, args.IfName, nwCfg); err != nil {
 		log.Printf("[cni-net] Failed to extract network name from network config. error: %v", err)
@@ -606,8 +617,8 @@ func (plugin *netPlugin) Delete(args *cniSkel.CmdArgs) error {
 		epInfo       *network.EndpointInfo
 	)
 
-	log.Printf("[cni-net] Processing DEL command with args {ContainerID:%v Netns:%v IfName:%v Args:%v Path:%v}.",
-		args.ContainerID, args.Netns, args.IfName, args.Args, args.Path)
+	log.Printf("[cni-net] Processing DEL command with args {ContainerID:%v Netns:%v IfName:%v Args:%v Path:%v, StdinData:%s}.",
+		args.ContainerID, args.Netns, args.IfName, args.Args, args.Path, args.StdinData)
 
 	defer func() { log.Printf("[cni-net] DEL command completed with err:%v.", err) }()
 
@@ -624,6 +635,11 @@ func (plugin *netPlugin) Delete(args *cniSkel.CmdArgs) error {
 	// Parse Pod arguments.
 	if k8sPodName, k8sNamespace, err = plugin.getPodInfo(args.Args); err != nil {
 		log.Printf("[cni-net] Failed to get POD info due to error: %v", err)
+	}
+
+	if nwCfg.MultiTenancy {
+		// Initialize CNSClient
+		cnsclient.InitCnsClient(nwCfg.CNSUrl)
 	}
 
 	// Initialize values from network config.
@@ -771,7 +787,7 @@ func (plugin *netPlugin) Update(args *cniSkel.CmdArgs) error {
 
 	// now query CNS to get the target routes that should be there in the networknamespace (as a result of update)
 	log.Printf("Going to collect target routes for [name=%v, namespace=%v] from CNS.", k8sPodName, k8sNamespace)
-	if cnsClient, err = cnsclient.NewCnsClient(nwCfg.CNSUrl); err != nil {
+	if cnsClient, err = cnsclient.InitCnsClient(nwCfg.CNSUrl); err != nil {
 		log.Printf("Initializing CNS client error in CNI Update%v", err)
 		log.Printf(err.Error())
 		return plugin.Errorf(err.Error())

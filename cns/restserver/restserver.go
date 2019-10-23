@@ -164,6 +164,8 @@ func (service *HTTPRestService) Start(config *common.ServiceConfig) error {
 	listener.AddHandler(cns.CreateHnsNetworkPath, service.createHnsNetwork)
 	listener.AddHandler(cns.DeleteHnsNetworkPath, service.deleteHnsNetwork)
 	listener.AddHandler(cns.NumberOfCPUCoresPath, service.getNumberOfCPUCores)
+	listener.AddHandler(cns.CreateHostNCApipaEndpointPath, service.createHostNCApipaEndpoint)
+	listener.AddHandler(cns.DeleteHostNCApipaEndpointPath, service.deleteHostNCApipaEndpoint)
 	listener.AddHandler(cns.CreateCompartmentWithNCs, service.createCompartmentWithNCs)
 	listener.AddHandler(cns.DeleteCompartmentWithNCs, service.deleteCompartmentWithNCs)
 	listener.AddHandler(cns.GetCompartmentWithNC, service.getCompartmentWithNC)
@@ -187,7 +189,7 @@ func (service *HTTPRestService) Stop() {
 	log.Printf("[Azure CNS]  Service stopped.")
 }
 
-// Get dnc/service partition key
+// GetPartitionKey - Get dnc/service partition key
 func (service *HTTPRestService) GetPartitionKey() (dncPartitionKey string) {
 	service.lock.Lock()
 	dncPartitionKey = service.dncPartitionKey
@@ -1021,11 +1023,15 @@ func (service *HTTPRestService) saveNetworkContainerGoalState(req cns.CreateNetw
 	switch req.NetworkContainerType {
 	case cns.AzureContainerInstance:
 		fallthrough
-	case cns.ClearContainer:
-		fallthrough
 	case cns.Docker:
 		fallthrough
 	case cns.Basic:
+		fallthrough
+	case cns.JobObject:
+		fallthrough
+	case cns.COW:
+		fallthrough
+	case cns.WebApps:
 		switch service.state.OrchestratorType {
 		case cns.Kubernetes:
 			fallthrough
@@ -1036,6 +1042,8 @@ func (service *HTTPRestService) saveNetworkContainerGoalState(req cns.CreateNetw
 		case cns.DBforPostgreSQL:
 			fallthrough
 		case cns.AzureFirstParty:
+			fallthrough
+		case cns.WebApps:
 			var podInfo cns.KubernetesPodInfo
 			err := json.Unmarshal(req.OrchestratorContext, &podInfo)
 			if err != nil {
@@ -1053,8 +1061,14 @@ func (service *HTTPRestService) saveNetworkContainerGoalState(req cns.CreateNetw
 			break
 
 		default:
-			log.Printf("Invalid orchestrator type %v", service.state.OrchestratorType)
+			errMsg := fmt.Sprintf("Unsupported orchestrator type: %s", service.state.OrchestratorType)
+			log.Errorf(errMsg)
+			return UnsupportedOrchestratorType, errMsg
 		}
+	default:
+		errMsg := fmt.Sprintf("Unsupported network container type %s", req.NetworkContainerType)
+		log.Errorf(errMsg)
+		return UnsupportedNetworkContainerType, errMsg
 	}
 
 	service.saveState()
@@ -1083,9 +1097,7 @@ func (service *HTTPRestService) createOrUpdateNetworkContainer(w http.ResponseWr
 	case "POST":
 		if req.NetworkContainerType == cns.WebApps {
 			// try to get the saved nc state if it exists
-			service.lock.Lock()
-			existing, ok := service.state.ContainerStatus[req.NetworkContainerid]
-			service.lock.Unlock()
+			existing, ok := service.getNetworkContainerDetails(req.NetworkContainerid)
 
 			// create/update nc only if it doesn't exist or it exists and the requested version is different from the saved version
 			if !ok || (ok && existing.VMVersion != req.Version) {
@@ -1098,9 +1110,7 @@ func (service *HTTPRestService) createOrUpdateNetworkContainer(w http.ResponseWr
 			}
 		} else if req.NetworkContainerType == cns.AzureContainerInstance {
 			// try to get the saved nc state if it exists
-			service.lock.Lock()
-			existing, ok := service.state.ContainerStatus[req.NetworkContainerid]
-			service.lock.Unlock()
+			existing, ok := service.getNetworkContainerDetails(req.NetworkContainerid)
 
 			// create/update nc only if it doesn't exist or it exists and the requested version is different from the saved version
 			if ok && existing.VMVersion != req.Version {
@@ -1200,6 +1210,7 @@ func (service *HTTPRestService) getNetworkContainerResponse(req cns.GetNetworkCo
 
 	savedReq := containerDetails.CreateNetworkContainerRequest
 	getNetworkContainerResponse = cns.GetNetworkContainerResponse{
+		NetworkContainerID:         savedReq.NetworkContainerid,
 		IPConfiguration:            savedReq.IPConfiguration,
 		Routes:                     savedReq.Routes,
 		CnetAddressSpace:           savedReq.CnetAddressSpace,
@@ -1261,9 +1272,7 @@ func (service *HTTPRestService) deleteNetworkContainer(w http.ResponseWriter, r 
 		var containerStatus containerstatus
 		var ok bool
 
-		service.lock.Lock()
-		containerStatus, ok = service.state.ContainerStatus[req.NetworkContainerid]
-		service.lock.Unlock()
+		containerStatus, ok = service.getNetworkContainerDetails(req.NetworkContainerid)
 
 		if !ok {
 			log.Printf("Not able to retrieve network container details for this container id %v", req.NetworkContainerid)
@@ -1524,9 +1533,8 @@ func (service *HTTPRestService) attachOrDetachHelper(req cns.ConfigureContainerN
 			Message:    "[Azure CNS] Error. NetworkContainerid is empty"}
 	}
 
-	service.lock.Lock()
-	existing, ok := service.state.ContainerStatus[cns.SwiftPrefix+req.NetworkContainerid]
-	service.lock.Unlock()
+	existing, ok := service.getNetworkContainerDetails(cns.SwiftPrefix + req.NetworkContainerid)
+
 	if !ok {
 		return cns.Response{
 			ReturnCode: NotFound,
@@ -1768,7 +1776,6 @@ func (service *HTTPRestService) deleteCompartmentWithNCs(w http.ResponseWriter, 
 
 	err = service.Listener.Decode(w, r, &req)
 	log.Request(service.Name, &req, err)
-
 	if err != nil {
 		returnMessage = fmt.Sprintf("[Azure CNS] ERROR: Unable to decode input request")
 		returnCode = InvalidParameter
@@ -1819,6 +1826,114 @@ func (service *HTTPRestService) deleteCompartmentWithNCs(w http.ResponseWriter, 
 	log.Response(service.Name, resp, resp.ReturnCode, ReturnCodeToString(resp.ReturnCode), err)
 }
 
+func (service *HTTPRestService) getNetworkContainerDetails(networkContainerID string) (containerstatus, bool) {
+	service.lock.Lock()
+	defer service.lock.Unlock()
+
+	containerDetails, containerExists := service.state.ContainerStatus[networkContainerID]
+
+	return containerDetails, containerExists
+}
+
+func (service *HTTPRestService) createHostNCApipaEndpoint(w http.ResponseWriter, r *http.Request) {
+	log.Printf("[Azure-CNS] createHostNCApipaEndpoint")
+
+	var (
+		err           error
+		req           cns.CreateHostNCApipaEndpointRequest
+		returnCode    int
+		returnMessage string
+		endpointID    string
+	)
+
+	err = service.Listener.Decode(w, r, &req)
+	log.Request(service.Name, &req, err)
+
+	if err != nil {
+		return
+	}
+
+	switch r.Method {
+	case "POST":
+		networkContainerDetails, found := service.getNetworkContainerDetails(req.NetworkContainerID)
+		if found {
+			if !networkContainerDetails.CreateNetworkContainerRequest.AllowNCToHostCommunication &&
+				!networkContainerDetails.CreateNetworkContainerRequest.AllowHostToNCCommunication {
+				returnMessage = fmt.Sprintf("HostNCApipaEndpoint creation is not supported unless " +
+					"AllowNCToHostCommunication or AllowHostToNCCommunication is set to true")
+				returnCode = InvalidRequest
+			} else {
+				if endpointID, err = hnsclient.CreateHostNCApipaEndpoint(
+					req.NetworkContainerID,
+					networkContainerDetails.CreateNetworkContainerRequest.LocalIPConfiguration,
+					networkContainerDetails.CreateNetworkContainerRequest.AllowNCToHostCommunication,
+					networkContainerDetails.CreateNetworkContainerRequest.AllowHostToNCCommunication); err != nil {
+					returnMessage = fmt.Sprintf("CreateHostNCApipaEndpoint failed with error: %v", err)
+					returnCode = UnexpectedError
+				}
+			}
+		} else {
+			returnMessage = fmt.Sprintf("CreateHostNCApipaEndpoint failed with error: Unable to find goal state for"+
+				" the given Network Container: %s", req.NetworkContainerID)
+			returnCode = UnknownContainerID
+		}
+	default:
+		returnMessage = "createHostNCApipaEndpoint API expects a POST"
+		returnCode = UnsupportedVerb
+	}
+
+	response := cns.CreateHostNCApipaEndpointResponse{
+		Response: cns.Response{
+			ReturnCode: returnCode,
+			Message:    returnMessage,
+		},
+		EndpointID: endpointID,
+	}
+
+	err = service.Listener.Encode(w, &response)
+	log.Response(service.Name, response, response.Response.ReturnCode, ReturnCodeToString(response.Response.ReturnCode), err)
+}
+
+func (service *HTTPRestService) deleteHostNCApipaEndpoint(w http.ResponseWriter, r *http.Request) {
+	log.Printf("[Azure-CNS] deleteHostNCApipaEndpoint")
+
+	var (
+		err           error
+		req           cns.DeleteHostNCApipaEndpointRequest
+		returnCode    int
+		returnMessage string
+	)
+
+	err = service.Listener.Decode(w, r, &req)
+	log.Request(service.Name, &req, err)
+
+	if err != nil {
+		return
+	}
+
+	switch r.Method {
+	case "POST":
+		if err = hnsclient.DeleteHostNCApipaEndpoint(req.NetworkContainerID); err != nil {
+			returnMessage = fmt.Sprintf("Failed to delete endpoint for Network Container: %s "+
+				"due to error: %v", req.NetworkContainerID, err)
+			returnCode = UnexpectedError
+		}
+	default:
+		returnMessage = "deleteHostNCApipaEndpoint API expects a DELETE"
+		returnCode = UnsupportedVerb
+	}
+
+	response := cns.DeleteHostNCApipaEndpointResponse{
+		Response: cns.Response{
+			ReturnCode: returnCode,
+			Message:    returnMessage,
+		},
+	}
+
+	err = service.Listener.Encode(w, &response)
+	log.Response(service.Name, response, response.Response.ReturnCode, ReturnCodeToString(response.Response.ReturnCode), err)
+}
+
 // Handles requests to create compartment with NCs.
 func (service *HTTPRestService) createCompartmentWithNCs(w http.ResponseWriter, r *http.Request) {
 	log.Printf("[Azure CNS] createCompartmentWithNCs")
@@ -1833,7 +1948,6 @@ func (service *HTTPRestService) createCompartmentWithNCs(w http.ResponseWriter, 
 
 	err = service.Listener.Decode(w, r, &req)
 	log.Request(service.Name, &req, err)
-
 	if err != nil {
 		returnMessage = fmt.Sprintf("[Azure CNS] ERROR: Unable to decode input request")
 		returnCode = InvalidParameter

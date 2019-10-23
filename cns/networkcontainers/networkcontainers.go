@@ -52,42 +52,65 @@ func NewNetPluginConfiguration(binPath, configPath string) *NetPluginConfigurati
 	}
 }
 
-func interfaceExists(iFaceName string) (bool, error) {
+func InterfaceExists(iFaceName string) (bool, error) {
 	_, err := net.InterfaceByName(iFaceName)
 	if err != nil {
-		errMsg := fmt.Sprintf("[Azure CNS] Unable to get interface by name %v, %v", iFaceName, err)
+		errMsg := fmt.Sprintf("[Azure CNS] Unable to get interface by name %s. Error: %v", iFaceName, err)
 		log.Printf(errMsg)
 		return false, errors.New(errMsg)
 	}
+
+	log.Printf("[Azure CNS] Found interface by name %s", iFaceName)
 
 	return true, nil
 }
 
 // Create creates a network container.
 func (cn *NetworkContainers) Create(createNetworkContainerRequest cns.CreateNetworkContainerRequest) error {
-	log.Printf("[Azure CNS] NetworkContainers.Create called")
+	log.Printf("[Azure CNS] NetworkContainers.Create called for NC: %s", createNetworkContainerRequest.NetworkContainerid)
 	err := createOrUpdateInterface(createNetworkContainerRequest)
-	if err == nil {
-		err = setWeakHostOnInterface(createNetworkContainerRequest.PrimaryInterfaceIdentifier)
-	}
-	log.Printf("[Azure CNS] NetworkContainers.Create finished.")
+	log.Printf("[Azure CNS] NetworkContainers.Create completed for NC: %s with error: %v",
+		createNetworkContainerRequest.NetworkContainerid, err)
+
 	return err
 }
 
 // Update updates a network container.
 func (cn *NetworkContainers) Update(createNetworkContainerRequest cns.CreateNetworkContainerRequest, netpluginConfig *NetPluginConfiguration) error {
-	log.Printf("[Azure CNS] NetworkContainers.Update called")
+	log.Printf("[Azure CNS] NetworkContainers.Update called for NC: %s", createNetworkContainerRequest.NetworkContainerid)
 	err := updateInterface(createNetworkContainerRequest, netpluginConfig)
-	log.Printf("[Azure CNS] NetworkContainers.Update finished.")
+	log.Printf("[Azure CNS] NetworkContainers.Update completed for NC: %s with error: %v",
+		createNetworkContainerRequest.NetworkContainerid, err)
+
 	return err
 }
 
 // Delete deletes a network container.
 func (cn *NetworkContainers) Delete(networkContainerID string) error {
-	log.Printf("[Azure CNS] NetworkContainers.Delete called")
+	log.Printf("[Azure CNS] NetworkContainers.Delete called for NC: %s", networkContainerID)
 	err := deleteInterface(networkContainerID)
-	log.Printf("[Azure CNS] NetworkContainers.Delete finished.")
+	log.Printf("[Azure CNS] NetworkContainers.Delete completed for NC: %s with error: %v", networkContainerID, err)
+
 	return err
+}
+
+// CreateLoopbackAdapter creates a loopback adapter with the specified settings
+func CreateLoopbackAdapter(
+	adapterName string,
+	ipConfig cns.IPConfiguration,
+	setWeakHostOnInterface bool,
+	primaryInterfaceIdentifier string) error {
+	return createOrUpdateWithOperation(
+		adapterName,
+		ipConfig,
+		setWeakHostOnInterface, // Flag to setWeakHostOnInterface
+		primaryInterfaceIdentifier,
+		"CREATE")
+}
+
+// DeleteLoopbackAdapter deletes loopback adapter with the specified name
+func DeleteLoopbackAdapter(adapterName string) error {
+	return deleteInterface(adapterName)
 }
 
 // This function gets the flattened network configuration (compliant with azure cni) in byte array format

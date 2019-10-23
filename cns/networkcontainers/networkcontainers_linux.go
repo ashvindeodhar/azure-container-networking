@@ -18,7 +18,7 @@ func createOrUpdateInterface(createNetworkContainerRequest cns.CreateNetworkCont
 	return nil
 }
 
-func setWeakHostOnInterface(ipAddress string) error {
+func setWeakHostOnInterface(ipAddress, ncID string) error {
 	return nil
 }
 
@@ -89,4 +89,13 @@ func deleteInterface(networkContainerID string) error {
 
 func configureNetworkContainerNetworking(operation, podName, podNamespace, dockerContainerid string, netPluginConfig *NetPluginConfiguration) (err error) {
 	return fmt.Errorf("[Azure CNS] Operation is not supported in linux.")
+}
+
+func createOrUpdateWithOperation(
+	adapterName string,
+	ipConfig cns.IPConfiguration,
+	setWeakHost bool,
+	primaryInterfaceIdentifier string,
+	operation string) error {
+	return nil
 }

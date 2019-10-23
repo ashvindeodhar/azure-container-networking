@@ -26,9 +26,10 @@ const (
 const (
 	AzureContainerInstance = "AzureContainerInstance"
 	WebApps                = "WebApps"
-	ClearContainer         = "ClearContainer"
 	Docker                 = "Docker"
 	Basic                  = "Basic"
+	JobObject              = "JobObject"
+	COW                    = "COW" // Container on Windows
 )
 
 // Orchestrator Types
@@ -136,6 +137,7 @@ type GetNetworkContainerRequest struct {
 
 // GetNetworkContainerResponse describes the response to retrieve a specifc network container.
 type GetNetworkContainerResponse struct {
+	NetworkContainerID         string
 	IPConfiguration            IPConfiguration
 	Routes                     []Route
 	CnetAddressSpace           []IPSubnet
@@ -176,7 +178,7 @@ type AttachContainerToNetworkResponse struct {
 	Response Response
 }
 
-// DetachNetworkContainerToNetworkResponse specifies response of detaching network container from network.
+// DetachContainerFromNetworkResponse specifies response of detaching network container from network.
 type DetachContainerFromNetworkResponse struct {
 	Response Response
 }

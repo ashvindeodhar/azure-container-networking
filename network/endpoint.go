@@ -35,11 +35,13 @@ type endpoint struct {
 	EnableMultitenancy       bool
 	AllowInboundFromHostToNC bool
 	AllowInboundFromNCToHost bool
+	NetworkContainerID       string
 	NetworkNameSpace         string `json:",omitempty"`
 	ContainerID              string
 	PODName                  string `json:",omitempty"`
 	PODNameSpace             string `json:",omitempty"`
 	InfraVnetAddressSpace    string `json:",omitempty"`
+	NetNs                    string `json:",omitempty"`
 }
 
 // EndpointInfo contains read-only information about an endpoint.
@@ -62,11 +64,12 @@ type EndpointInfo struct {
 	EnableMultiTenancy       bool
 	AllowInboundFromHostToNC bool
 	AllowInboundFromNCToHost bool
+	NetworkContainerID       string
 	PODName                  string
 	PODNameSpace             string
 	Data                     map[string]interface{}
 	InfraVnetAddressSpace    string
-	SkipHotAttachEp       bool
+	SkipHotAttachEp          bool
 }
 
 // RouteInfo contains information about an IP route.
@@ -201,11 +204,12 @@ func (ep *endpoint) getInfo() *EndpointInfo {
 		EnableMultiTenancy:       ep.EnableMultitenancy,
 		AllowInboundFromHostToNC: ep.AllowInboundFromHostToNC,
 		AllowInboundFromNCToHost: ep.AllowInboundFromNCToHost,
-		IfName:       ep.IfName,
-		ContainerID:  ep.ContainerID,
-		NetNsPath:    ep.NetworkNameSpace,
-		PODName:      ep.PODName,
-		PODNameSpace: ep.PODNameSpace,
+		IfName:             ep.IfName,
+		ContainerID:        ep.ContainerID,
+		NetNsPath:          ep.NetworkNameSpace,
+		PODName:            ep.PODName,
+		PODNameSpace:       ep.PODNameSpace,
+		NetworkContainerID: ep.NetworkContainerID,
 	}
 
 	for _, route := range ep.Routes {
