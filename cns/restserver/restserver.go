@@ -166,7 +166,7 @@ func (service *HTTPRestService) Start(config *common.ServiceConfig) error {
 	listener.AddHandler(cns.NumberOfCPUCoresPath, service.getNumberOfCPUCores)
 	listener.AddHandler(cns.CreateHostNCApipaEndpointPath, service.createHostNCApipaEndpoint)
 	listener.AddHandler(cns.DeleteHostNCApipaEndpointPath, service.deleteHostNCApipaEndpoint)
-	listener.AddHandler(cns.CreateCompartmentWithNCs, service.createCompartmentWithNCs)
+	listener.AddHandler(cns.CreateCompartmentWithNCs, service.createCompartmentWithNCs2)
 	listener.AddHandler(cns.DeleteCompartmentWithNCs, service.deleteCompartmentWithNCs)
 	listener.AddHandler(cns.GetCompartmentWithNC, service.getCompartmentWithNC)
 
@@ -2152,4 +2152,170 @@ func (service *HTTPRestService) restoreCompartmentNCs(compartmentNCData map[int]
 func (service *HTTPRestService) isCompartmentManagementEnabled() bool {
 	enableCompartmentMgmnt, _ := service.GetOption(acn.OptEnableCompartmentMgmnt).(bool)
 	return enableCompartmentMgmnt
+}
+
+// Handles requests to create compartment with NCs.
+func (service *HTTPRestService) createCompartmentWithNCs2(w http.ResponseWriter, r *http.Request) {
+	log.Printf("[Azure CNS] createCompartmentWithNCs2")
+
+	var (
+		returnCode    int
+		returnMessage string
+		err           error
+		compartmentID int
+		req           cns.CreateCompartmentWithNCsRequest
+	)
+
+	err = service.Listener.Decode(w, r, &req)
+	log.Request(service.Name, &req, err)
+	if err != nil {
+		returnMessage = fmt.Sprintf("[Azure CNS] ERROR: Unable to decode input request")
+		returnCode = InvalidParameter
+	} else {
+		switch r.Method {
+		case "POST":
+			if len(req.NCIDs) <= 0 {
+				returnMessage = fmt.Sprintf("ERROR: No NCID specified in the request")
+				returnCode = InvalidParameter
+			} else if len(req.NCIDs) > hnsclient.MaxNCsPerCompartment {
+				returnMessage = fmt.Sprintf("ERROR: Number of NCIDs specified (%d) exceeds max supported (%d)",
+					len(req.NCIDs), hnsclient.MaxNCsPerCompartment)
+				returnCode = InvalidParameter
+			} else {
+
+				for _, ncID := range req.NCIDs {
+					var networkContainerInfo *cns.GetNetworkContainerResponse
+					if networkContainerInfo, err = service.getNetworkContainerInfo(ncID); err != nil {
+						returnMessage = fmt.Sprintf("ERROR: Cannot retrieve data for specified NCID")
+						returnCode = InvalidParameter
+					} else {
+						if compartmentID, err = hnsclient.SetupNetworkAndEndpoints2(
+							networkContainerInfo, ncID); err != nil {
+							returnMessage = fmt.Sprintf("Failed to setup network for NCID: %s "+
+								"due to error: %v", ncID, err)
+							// update the return code based on the error
+							// such as endpointalreadyattached
+							returnCode = UnexpectedError
+							break
+						} else {
+							// save the compartment NC data
+							service.setCompartmentNCData(compartmentID, ncID)
+							log.Printf("[Azure CNS] Successfully created endpoint for NCID: %s ", ncID)
+						}
+					}
+				}
+
+				if err != nil {
+					log.Printf("[Azure CNS] tempdebug: Failed error: %v ", err)
+					/*
+						var endpoints []string
+						if endpoints, err = service.getCompartmentNCData(compartmentID); err == nil {
+							for _, endpoint := range endpoints {
+								// Do endpoint cleanup
+								if err = hnsclient.CleanupEndpoint(endpoint); err != nil {
+									log.Errorf("[Azure CNS] Failed to cleanup endpoint for NC ID: %s"+
+										" due to error: %v", endpoint, err)
+								}
+							}
+
+							// Remove the compartment NC data
+							service.deleteCompartmentNCData(compartmentID)
+						}
+
+						// TODO: Delete the hnsNamespace
+
+							// Delete the compartment
+						//	if err = hnsclient.DeleteCompartment(compartmentID); err != nil {
+						//		log.Errorf("[Azure CNS] Failed to delete compartment: %d due to error: %v",
+						//			compartmentID, err)
+						//	}
+
+					*/
+					// Reset the compartment ID to 0
+					//compartmentID = 0
+
+				} else {
+					log.Printf("Successfully created network compartment with ID: %d",
+						compartmentID)
+					returnMessage = fmt.Sprintf("Successfully created network compartment with ID: %d",
+						compartmentID)
+				}
+			}
+		default:
+			returnMessage = fmt.Sprintf("ERROR: createCompartmentWithNCs API expects a POST")
+			returnCode = UnsupportedVerb
+		}
+	}
+
+	resp := cns.Response{
+		ReturnCode: returnCode,
+		Message:    returnMessage,
+	}
+
+	createCompartmentWithNCsResp := &cns.CreateCompartmentWithNCsResponse{Response: resp, CompartmentID: compartmentID}
+	err = service.Listener.Encode(w, &createCompartmentWithNCsResp)
+	log.Response(service.Name, createCompartmentWithNCsResp, resp.ReturnCode, ReturnCodeToString(resp.ReturnCode), err)
+}
+
+// Handles request to delete network compartment with NCs.
+func (service *HTTPRestService) deleteCompartmentWithNCs2(w http.ResponseWriter, r *http.Request) {
+	log.Printf("[Azure CNS] deleteCompartmentWithNCs2")
+
+	var (
+		returnCode    int
+		returnMessage string
+		err           error
+		req           cns.DeleteCompartmentWithNCsRequest
+	)
+
+	err = service.Listener.Decode(w, r, &req)
+	log.Request(service.Name, &req, err)
+	if err != nil {
+		returnMessage = fmt.Sprintf("[Azure CNS] ERROR: Unable to decode input request")
+		returnCode = InvalidParameter
+	} else {
+		switch r.Method {
+		case "DELETE":
+			if req.CompartmentID <= hnsclient.DefaultNetworkCompartmentID {
+				returnMessage = fmt.Sprintf("ERROR: Invalid compartment ID specified")
+				returnCode = InvalidParameter
+			} else {
+				if compartmentNCData, err := service.getCompartmentNCData(req.CompartmentID); err == nil {
+					for _, endpointName := range compartmentNCData {
+						if err = hnsclient.CleanupEndpoint(endpointName); err != nil {
+							returnMessage = err.Error()
+							returnCode = UnexpectedError
+							break
+						}
+					}
+
+					if err == nil {
+						if err = hnsclient.DeleteCompartment(req.CompartmentID); err != nil {
+							returnMessage = err.Error()
+							returnCode = UnexpectedError
+						} else {
+							// Compartment deleted successfully
+							returnMessage = fmt.Sprintf("Successfully deleted network compartment "+
+								"with ID: %d", req.CompartmentID)
+							service.deleteCompartmentNCData(req.CompartmentID)
+						}
+					}
+				} else {
+					returnMessage = fmt.Sprintf("ERROR: Attempting to delete invalid compartment")
+					returnCode = InvalidParameter
+				}
+			}
+		default:
+			returnMessage = fmt.Sprintf("ERROR: deleteCompartmentWithNCs API expects a DELETE")
+			returnCode = UnsupportedVerb
+		}
+	}
+
+	resp := &cns.Response{
+		ReturnCode: returnCode,
+		Message:    returnMessage,
+	}
+
+	err = service.Listener.Encode(w, &resp)
+	log.Response(service.Name, resp, resp.ReturnCode, ReturnCodeToString(resp.ReturnCode), err)
 }
