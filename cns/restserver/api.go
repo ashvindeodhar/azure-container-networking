@@ -24,6 +24,8 @@ const (
 	UnsupportedVerb                 = 21
 	UnsupportedNetworkContainerType = 22
 	InvalidRequest                  = 23
+	NetworkPublishFailed            = 24
+	NetworkContainerPublishFailed   = 25
 	UnexpectedError                 = 99
 )
 

@@ -1,6 +1,8 @@
 package cns
 
-import "encoding/json"
+import (
+	"encoding/json"
+)
 
 // Container Network Service DNC Contract
 const (
@@ -8,6 +10,8 @@ const (
 	CreateOrUpdateNetworkContainer           = "/network/createorupdatenetworkcontainer"
 	DeleteNetworkContainer                   = "/network/deletenetworkcontainer"
 	GetNetworkContainerStatus                = "/network/getnetworkcontainerstatus"
+	PublishNetworkContainer                  = "/network/publishnetworkcontainer"
+	UnpublishNetworkContainer                = "/network/unpublishnetworkcontainer"
 	GetInterfaceForContainer                 = "/network/getinterfaceforcontainer"
 	GetNetworkContainerByOrchestratorContext = "/network/getnetworkcontainerbyorchestratorcontext"
 	AttachContainerToNetwork                 = "/network/attachcontainertonetwork"
@@ -181,4 +185,29 @@ type DetachContainerFromNetworkResponse struct {
 type NetworkInterface struct {
 	Name      string
 	IPAddress string
+}
+
+// PublishNetworkContainerRequest specifies request to publish network container via NMAgent.
+type PublishNetworkContainerRequest struct {
+	WireSererIP                  string
+	AssociatedInterfaceIP        string
+	NetworkID                    string
+	NetworkContainerID           string
+	AccessToken                  string
+	JoinNetworkURLFmt            string
+	CreateNetworkContainerURLFmt string
+	JoinNetworkURL               string
+	CreateNetworkContainerURL    string
+	//CreateNetworkContainerRequestBody bytes.Buffer
+	CreateNetworkContainerRequestBody []byte
+}
+
+// PublishNetworkContainerResponse specifies the response to publish network container request.
+type PublishNetworkContainerResponse struct {
+	Response Response
+	//HttpStatusCode int
+	//HttpResponsePublish http.Response
+	PublishStatusCode   int
+	PublishResponseBody []byte
+	PublishError        error
 }

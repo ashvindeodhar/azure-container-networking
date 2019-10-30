@@ -6,6 +6,7 @@ package restserver
 import (
 	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"net"
 	"net/http"
 	"runtime"
@@ -19,6 +20,7 @@ import (
 	"github.com/Azure/azure-container-networking/cns/imdsclient"
 	"github.com/Azure/azure-container-networking/cns/ipamclient"
 	"github.com/Azure/azure-container-networking/cns/networkcontainers"
+	"github.com/Azure/azure-container-networking/cns/nmagentclient"
 	"github.com/Azure/azure-container-networking/cns/routes"
 	acn "github.com/Azure/azure-container-networking/common"
 	"github.com/Azure/azure-container-networking/log"
@@ -161,6 +163,8 @@ func (service *HTTPRestService) Start(config *common.ServiceConfig) error {
 	listener.AddHandler(cns.NumberOfCPUCoresPath, service.getNumberOfCPUCores)
 	listener.AddHandler(cns.CreateHostNCApipaEndpointPath, service.createHostNCApipaEndpoint)
 	listener.AddHandler(cns.DeleteHostNCApipaEndpointPath, service.deleteHostNCApipaEndpoint)
+	listener.AddHandler(cns.PublishNetworkContainer, service.publishNetworkContainer)
+	//listener.AddHandler(cns.UnpublishNetworkContainer, service.unpublishNetworkContainer)
 
 	// handlers for v0.2
 	listener.AddHandler(cns.V2Prefix+cns.SetEnvironmentPath, service.setEnvironment)
@@ -1723,3 +1727,101 @@ func (service *HTTPRestService) deleteHostNCApipaEndpoint(w http.ResponseWriter,
 	err = service.Listener.Encode(w, &response)
 	log.Response(service.Name, response, response.Response.ReturnCode, ReturnCodeToString(response.Response.ReturnCode), err)
 }
+
+// TODO: move this to nmagent specific file
+func (service *HTTPRestService) publishNetworkContainer(w http.ResponseWriter, r *http.Request) {
+	log.Printf("[Azure-CNS] publishNetworkContainer")
+
+	var (
+		err                  error
+		req                  cns.PublishNetworkContainerRequest
+		returnCode           int
+		returnMessage        string
+		returnHttpStatusCode int
+		//joinRespStatusCode   int
+		responsePublish *http.Response
+	)
+
+	err = service.Listener.Decode(w, r, &req)
+	log.Request(service.Name, &req, err)
+	if err != nil {
+		return
+	}
+
+	switch r.Method {
+	case "POST":
+		// Publish Network
+		responsePublish, err = nmagentclient.PublishNetwork(req.NetworkID, req.JoinNetworkURLFmt, req.WireSererIP, req.JoinNetworkURL)
+		//TODO: check if responsePublish is nil
+		if responsePublish.StatusCode != http.StatusOK || err != nil {
+			returnMessage = fmt.Sprintf("Failed to publish Network: %s, HttpStatusCode: %d, Error: %v",
+				req.NetworkID, returnHttpStatusCode, err)
+			returnCode = NetworkPublishFailed
+		} else {
+			// Publish Network Container
+			responsePublish, err = nmagentclient.PublishNetworkContainer(
+				req.NetworkContainerID,
+				req.CreateNetworkContainerURLFmt,
+				req.WireSererIP,
+				req.AssociatedInterfaceIP,
+				req.AccessToken,
+				req.CreateNetworkContainerURL,
+				req.CreateNetworkContainerRequestBody)
+			// Below err handling is not needed
+			/*
+				if err != nil {
+					returnMessage = fmt.Sprintf("Failed to publish Network Container: %s, HttpStatusCode: %d, Error: %v",
+						req.NetworkContainerID, returnHttpStatusCode, err)
+					returnCode = NetworkContainerPublishFailed
+				}
+			*/
+		}
+	default:
+		returnMessage = "PublishNetworkContainer API expects a POST"
+		returnCode = UnsupportedVerb
+	}
+
+	publishResponseBody, errParse := ioutil.ReadAll(responsePublish.Body)
+	if errParse != nil {
+		log.Printf("[Azure-CNS] tempdebug: failed to parse the body")
+		returnCode = UnexpectedError
+		returnMessage = "Failed to parse the publish body"
+	}
+
+	response := cns.PublishNetworkContainerResponse{
+		Response: cns.Response{
+			ReturnCode: returnCode,
+			Message:    returnMessage,
+		},
+		//HttpStatusCode: returnHttpStatusCode,
+		// TODO: How to make sure responsePublish is not nil?
+		//HttpResponsePublish: *responsePublish,
+		PublishStatusCode:   responsePublish.StatusCode,
+		PublishResponseBody: publishResponseBody,
+		PublishError:        err,
+	}
+
+	err = service.Listener.Encode(w, &response)
+	log.Response(service.Name, response, response.Response.ReturnCode, ReturnCodeToString(response.Response.ReturnCode), err)
+}
+
+/*
+//perform http request
+    resp, err := http.Post(url, "application/json; charset=utf-8", bytes.NewBuffer(requestData))
+    defer resp.Body.Close()
+    utils.CheckErr(err)
+
+    // read the response body to a variable
+    bodyBytes, _ := ioutil.ReadAll(resp.Body)
+    bodyString := string(bodyBytes)
+    //print raw response body for debugging purposes
+    fmt.Println("\n\n", bodyString, "\n\n")
+
+    //reset the response body to the original unread state
+    resp.Body = ioutil.NopCloser(bytes.NewBuffer(bodyBytes))
+
+
+    // Step 3
+    oR := new(jsonResponse)
+    json.NewDecoder(resp.Body).Decode(oR)
+*/
