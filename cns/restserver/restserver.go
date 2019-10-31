@@ -165,7 +165,7 @@ func (service *HTTPRestService) Start(config *common.ServiceConfig) error {
 	listener.AddHandler(cns.CreateHostNCApipaEndpointPath, service.createHostNCApipaEndpoint)
 	listener.AddHandler(cns.DeleteHostNCApipaEndpointPath, service.deleteHostNCApipaEndpoint)
 	listener.AddHandler(cns.PublishNetworkContainer, service.publishNetworkContainer)
-	//listener.AddHandler(cns.UnpublishNetworkContainer, service.unpublishNetworkContainer)
+	listener.AddHandler(cns.UnpublishNetworkContainer, service.unpublishNetworkContainer)
 
 	// handlers for v0.2
 	listener.AddHandler(cns.V2Prefix+cns.SetEnvironmentPath, service.setEnvironment)
@@ -1781,7 +1781,6 @@ func (service *HTTPRestService) publishNetworkContainer(w http.ResponseWriter, r
 				req.JoinNetworkURL)
 
 			if err != nil || responsePublish.StatusCode != http.StatusOK {
-				//TODO: if err != nil - responsePublish will be nil and below will panic
 				returnMessage = fmt.Sprintf("Failed to join network: %s", req.NetworkID)
 				returnCode = NetworkJoinFailed
 				log.Errorf("[Azure-CNS] %s", returnMessage)
@@ -1806,9 +1805,10 @@ func (service *HTTPRestService) publishNetworkContainer(w http.ResponseWriter, r
 			}
 
 			if responsePublish != nil {
-				publishResponseBody, err = ioutil.ReadAll(responsePublish.Body)
-				if err != nil {
-					returnMessage = fmt.Sprintf("Failed to parse the publish body. Error: %v", err)
+				var errParse error
+				publishResponseBody, errParse = ioutil.ReadAll(responsePublish.Body)
+				if errParse != nil {
+					returnMessage = fmt.Sprintf("Failed to parse the publish body. Error: %v", errParse)
 					returnCode = UnexpectedError
 					log.Errorf("[Azure-CNS] %s", returnMessage)
 				}
@@ -1834,6 +1834,96 @@ func (service *HTTPRestService) publishNetworkContainer(w http.ResponseWriter, r
 		PublishError:        publishError,
 		PublishStatusCode:   publishStatusCode,
 		PublishResponseBody: publishResponseBody,
+	}
+
+	err = service.Listener.Encode(w, &response)
+	log.Response(service.Name, response, response.Response.ReturnCode, ReturnCodeToString(response.Response.ReturnCode), err)
+}
+
+// Unpublish Network Container by calling nmagent
+func (service *HTTPRestService) unpublishNetworkContainer(w http.ResponseWriter, r *http.Request) {
+	log.Printf("[Azure-CNS] UnpublishNetworkContainer")
+
+	var (
+		err                   error
+		req                   cns.UnpublishNetworkContainerRequest
+		returnCode            int
+		returnMessage         string
+		responseUnpublish     *http.Response
+		unpublishStatusCode   int
+		unpublishResponseBody []byte
+		unpublishError        error
+		isNetworkJoined       bool
+	)
+
+	err = service.Listener.Decode(w, r, &req)
+	log.Request(service.Name, &req, err)
+	if err != nil {
+		return
+	}
+
+	switch r.Method {
+	case "POST":
+		// Join Network if not joined already
+		isNetworkJoined = service.isNetworkJoined(req.NetworkID)
+		if !isNetworkJoined {
+			responseUnpublish, err = nmagentclient.JoinNetwork(
+				req.NetworkID,
+				req.JoinNetworkURL)
+
+			if err != nil || responseUnpublish.StatusCode != http.StatusOK {
+				returnMessage = fmt.Sprintf("Failed to join network: %s", req.NetworkID)
+				returnCode = NetworkJoinFailed
+				log.Errorf("[Azure-CNS] %s", returnMessage)
+			} else {
+				// Network joined successfully
+				service.setNetworkStateJoined(req.NetworkID)
+				isNetworkJoined = true
+				log.Printf("[Azure-CNS] setNetworkStateJoined")
+			}
+		}
+
+		if isNetworkJoined {
+			// Unpublish Network Container
+			responseUnpublish, err = nmagentclient.UnpublishNetworkContainer(
+				req.NetworkContainerID,
+				req.DeleteNetworkContainerURL)
+			if err != nil || responseUnpublish.StatusCode != http.StatusOK { //TODO: test this in goplayground
+				returnMessage = fmt.Sprintf("Failed to unpublish Network Container: %s", req.NetworkContainerID)
+				returnCode = NetworkContainerUnpublishFailed
+				log.Errorf("[Azure-CNS] %s", returnMessage)
+			}
+
+			if responseUnpublish != nil {
+				var errParse error
+				unpublishResponseBody, errParse = ioutil.ReadAll(responseUnpublish.Body)
+				if errParse != nil {
+					returnMessage = fmt.Sprintf("Failed to parse the unpublish body. Error: %v", errParse)
+					returnCode = UnexpectedError
+					log.Errorf("[Azure-CNS] %s", returnMessage)
+				}
+
+				responseUnpublish.Body.Close()
+			}
+		}
+	default:
+		returnMessage = "UnpublishNetworkContainer API expects a POST"
+		returnCode = UnsupportedVerb
+	}
+
+	unpublishError = err
+	if responseUnpublish != nil {
+		unpublishStatusCode = responseUnpublish.StatusCode
+	}
+
+	response := cns.UnpublishNetworkContainerResponse{
+		Response: cns.Response{
+			ReturnCode: returnCode,
+			Message:    returnMessage,
+		},
+		UnpublishError:        unpublishError,
+		UnpublishStatusCode:   unpublishStatusCode,
+		UnpublishResponseBody: unpublishResponseBody,
 	}
 
 	err = service.Listener.Encode(w, &response)

@@ -203,3 +203,19 @@ type PublishNetworkContainerResponse struct {
 	PublishStatusCode   int
 	PublishResponseBody []byte
 }
+
+// UnpublishNetworkContainerRequest specifies request to unpublish network container via NMAgent.
+type UnpublishNetworkContainerRequest struct {
+	NetworkID                 string
+	NetworkContainerID        string
+	JoinNetworkURL            string
+	DeleteNetworkContainerURL string
+}
+
+// UnpublishNetworkContainerResponse specifies the response to unpublish network container request.
+type UnpublishNetworkContainerResponse struct {
+	Response              Response
+	UnpublishError        error
+	UnpublishStatusCode   int
+	UnpublishResponseBody []byte
+}
