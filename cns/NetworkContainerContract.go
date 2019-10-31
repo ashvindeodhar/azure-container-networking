@@ -189,24 +189,16 @@ type NetworkInterface struct {
 
 // PublishNetworkContainerRequest specifies request to publish network container via NMAgent.
 type PublishNetworkContainerRequest struct {
-	WireSererIP                  string
-	AssociatedInterfaceIP        string
-	NetworkID                    string
-	NetworkContainerID           string
-	AccessToken                  string
-	JoinNetworkURLFmt            string
-	CreateNetworkContainerURLFmt string
-	JoinNetworkURL               string
-	CreateNetworkContainerURL    string
-	//CreateNetworkContainerRequestBody bytes.Buffer
+	NetworkID                         string
+	NetworkContainerID                string
+	JoinNetworkURL                    string
+	CreateNetworkContainerURL         string
 	CreateNetworkContainerRequestBody []byte
 }
 
 // PublishNetworkContainerResponse specifies the response to publish network container request.
 type PublishNetworkContainerResponse struct {
-	Response Response
-	//HttpStatusCode int
-	//HttpResponsePublish http.Response
+	Response            Response
 	PublishStatusCode   int
 	PublishResponseBody []byte
 	PublishError        error
