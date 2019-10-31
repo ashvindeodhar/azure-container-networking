@@ -199,7 +199,7 @@ type PublishNetworkContainerRequest struct {
 // PublishNetworkContainerResponse specifies the response to publish network container request.
 type PublishNetworkContainerResponse struct {
 	Response            Response
+	PublishError        error
 	PublishStatusCode   int
 	PublishResponseBody []byte
-	PublishError        error
 }
