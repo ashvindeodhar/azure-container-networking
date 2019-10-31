@@ -1754,11 +1754,11 @@ func (service *HTTPRestService) joinNetwork(
 	networkID string,
 	joinNetworkURL string) (*http.Response, error, error) {
 	var err error
-	unpublishResponse, unPublishErr := nmagentclient.JoinNetwork(
+	unpublishResponse, unpublishErr := nmagentclient.JoinNetwork(
 		networkID,
 		joinNetworkURL)
 
-	if unPublishErr == nil && unpublishResponse.StatusCode == http.StatusOK {
+	if unpublishErr == nil && unpublishResponse.StatusCode == http.StatusOK {
 		// Network joined successfully
 		service.setNetworkStateJoined(networkID)
 		log.Printf("[Azure-CNS] setNetworkStateJoined for network: %s", networkID)
@@ -1766,7 +1766,7 @@ func (service *HTTPRestService) joinNetwork(
 		err = fmt.Errorf("Failed to join network: %s", networkID)
 	}
 
-	return unpublishResponse, unPublishErr, err
+	return unpublishResponse, unpublishErr, err
 }
 
 // Publish Network Container by calling nmagent
