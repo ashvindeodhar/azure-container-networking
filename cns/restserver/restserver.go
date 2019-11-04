@@ -1754,11 +1754,11 @@ func (service *HTTPRestService) joinNetwork(
 	networkID string,
 	joinNetworkURL string) (*http.Response, error, error) {
 	var err error
-	unpublishResponse, unpublishErr := nmagentclient.JoinNetwork(
+	joinResponse, joinErr := nmagentclient.JoinNetwork(
 		networkID,
 		joinNetworkURL)
 
-	if unpublishErr == nil && unpublishResponse.StatusCode == http.StatusOK {
+	if joinErr == nil && joinResponse.StatusCode == http.StatusOK {
 		// Network joined successfully
 		service.setNetworkStateJoined(networkID)
 		log.Printf("[Azure-CNS] setNetworkStateJoined for network: %s", networkID)
@@ -1766,7 +1766,7 @@ func (service *HTTPRestService) joinNetwork(
 		err = fmt.Errorf("Failed to join network: %s", networkID)
 	}
 
-	return unpublishResponse, unpublishErr, err
+	return joinResponse, joinErr, err
 }
 
 // Publish Network Container by calling nmagent
@@ -1782,6 +1782,7 @@ func (service *HTTPRestService) publishNetworkContainer(w http.ResponseWriter, r
 		publishStatusCode   int
 		publishResponseBody []byte
 		publishError        error
+		publishErrorStr     string
 		isNetworkJoined     bool
 	)
 
@@ -1816,26 +1817,28 @@ func (service *HTTPRestService) publishNetworkContainer(w http.ResponseWriter, r
 				returnCode = NetworkContainerPublishFailed
 				log.Errorf("[Azure-CNS] %s", returnMessage)
 			}
-
-			if publishResponse != nil {
-				var errParse error
-				publishResponseBody, errParse = ioutil.ReadAll(publishResponse.Body)
-				if errParse != nil {
-					returnMessage = fmt.Sprintf("Failed to parse the publish body. Error: %v", errParse)
-					returnCode = UnexpectedError
-					log.Errorf("[Azure-CNS] %s", returnMessage)
-				}
-
-				publishResponse.Body.Close()
-			}
 		}
 	default:
 		returnMessage = "PublishNetworkContainer API expects a POST"
 		returnCode = UnsupportedVerb
 	}
 
+	if publishError != nil {
+		publishErrorStr = publishError.Error()
+	}
+
 	if publishResponse != nil {
 		publishStatusCode = publishResponse.StatusCode
+
+		var errParse error
+		publishResponseBody, errParse = ioutil.ReadAll(publishResponse.Body)
+		if errParse != nil {
+			returnMessage = fmt.Sprintf("Failed to parse the publish body. Error: %v", errParse)
+			returnCode = UnexpectedError
+			log.Errorf("[Azure-CNS] %s", returnMessage)
+		}
+
+		publishResponse.Body.Close()
 	}
 
 	response := cns.PublishNetworkContainerResponse{
@@ -1843,7 +1846,7 @@ func (service *HTTPRestService) publishNetworkContainer(w http.ResponseWriter, r
 			ReturnCode: returnCode,
 			Message:    returnMessage,
 		},
-		PublishError:        publishError,
+		PublishErrorStr:     publishErrorStr,
 		PublishStatusCode:   publishStatusCode,
 		PublishResponseBody: publishResponseBody,
 	}
@@ -1865,6 +1868,7 @@ func (service *HTTPRestService) unpublishNetworkContainer(w http.ResponseWriter,
 		unpublishStatusCode   int
 		unpublishResponseBody []byte
 		unpublishError        error
+		unpublishErrorStr     string
 		isNetworkJoined       bool
 	)
 
@@ -1916,6 +1920,10 @@ func (service *HTTPRestService) unpublishNetworkContainer(w http.ResponseWriter,
 		returnCode = UnsupportedVerb
 	}
 
+	if unpublishError != nil {
+		unpublishErrorStr = unpublishError.Error()
+	}
+
 	if unpublishResponse != nil {
 		unpublishStatusCode = unpublishResponse.StatusCode
 	}
@@ -1925,7 +1933,7 @@ func (service *HTTPRestService) unpublishNetworkContainer(w http.ResponseWriter,
 			ReturnCode: returnCode,
 			Message:    returnMessage,
 		},
-		UnpublishError:        unpublishError,
+		UnpublishErrorStr:     unpublishErrorStr,
 		UnpublishStatusCode:   unpublishStatusCode,
 		UnpublishResponseBody: unpublishResponseBody,
 	}

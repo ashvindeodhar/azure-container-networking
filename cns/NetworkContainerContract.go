@@ -199,7 +199,7 @@ type PublishNetworkContainerRequest struct {
 // PublishNetworkContainerResponse specifies the response to publish network container request.
 type PublishNetworkContainerResponse struct {
 	Response            Response
-	PublishError        error
+	PublishErrorStr     string
 	PublishStatusCode   int
 	PublishResponseBody []byte
 }
@@ -215,7 +215,7 @@ type UnpublishNetworkContainerRequest struct {
 // UnpublishNetworkContainerResponse specifies the response to unpublish network container request.
 type UnpublishNetworkContainerResponse struct {
 	Response              Response
-	UnpublishError        error
+	UnpublishErrorStr     string
 	UnpublishStatusCode   int
 	UnpublishResponseBody []byte
 }

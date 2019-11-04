@@ -40,7 +40,7 @@ func JoinNetwork(
 	json.NewEncoder(&body).Encode("")
 	response, err := httpClient.Post(joinNetworkURL, "application/json", &body)
 
-	if err == nil {
+	if err == nil && response.StatusCode == http.StatusOK {
 		defer response.Body.Close()
 	}
 
