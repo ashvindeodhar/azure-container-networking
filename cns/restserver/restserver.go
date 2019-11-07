@@ -28,12 +28,19 @@ import (
 	"github.com/Azure/azure-container-networking/store"
 )
 
+var (
+	// Named Lock for accessing different states in httpRestServiceState
+	namedLock = acn.InitNamedLock()
+)
+
 const (
 	// Key against which CNS state is persisted.
 	storeKey        = "ContainerNetworkService"
 	swiftAPIVersion = "1"
 	attach          = "Attach"
 	detach          = "Detach"
+	// Rest service state identifier for named lock
+	stateJoinedNetworks = "JoinedNetworks"
 )
 
 // HTTPRestService represents http listener for CNS - Container Networking Service.
@@ -189,6 +196,11 @@ func (service *HTTPRestService) Start(config *common.ServiceConfig) error {
 	listener.AddHandler(cns.V2Prefix+cns.NumberOfCPUCoresPath, service.getNumberOfCPUCores)
 	listener.AddHandler(cns.V2Prefix+cns.CreateHostNCApipaEndpointPath, service.createHostNCApipaEndpoint)
 	listener.AddHandler(cns.V2Prefix+cns.DeleteHostNCApipaEndpointPath, service.deleteHostNCApipaEndpoint)
+
+	// Initialize HTTP client to be reused in CNS
+	connectionTimeout, _ := service.GetOption(acn.OptHttpConnectionTimeout).(int)
+	responseHeaderTimeout, _ := service.GetOption(acn.OptHttpResponseHeaderTimeout).(int)
+	acn.InitHttpClient(connectionTimeout, responseHeaderTimeout)
 
 	log.Printf("[Azure CNS]  Listening.")
 	return nil
@@ -1731,8 +1743,9 @@ func (service *HTTPRestService) deleteHostNCApipaEndpoint(w http.ResponseWriter,
 
 // Check if the network is joined
 func (service *HTTPRestService) isNetworkJoined(networkID string) bool {
-	service.lock.Lock()
-	defer service.lock.Unlock()
+	namedLock.LockAcquire(stateJoinedNetworks)
+	defer namedLock.LockRelease(stateJoinedNetworks)
+
 	if service.state.joinedNetworks == nil {
 		service.state.joinedNetworks = make(map[string]struct{})
 	}
@@ -1744,8 +1757,9 @@ func (service *HTTPRestService) isNetworkJoined(networkID string) bool {
 
 // Set the network as joined
 func (service *HTTPRestService) setNetworkStateJoined(networkID string) {
-	service.lock.Lock()
-	defer service.lock.Unlock()
+	namedLock.LockAcquire(stateJoinedNetworks)
+	defer namedLock.LockRelease(stateJoinedNetworks)
+
 	service.state.joinedNetworks[networkID] = struct{}{}
 }
 
