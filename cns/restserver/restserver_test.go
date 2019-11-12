@@ -769,11 +769,8 @@ func TestPublishNCViaCNS(t *testing.T) {
 
 	networkID := "vnet1"
 	networkContainerID := "ethWebApp"
-	joinNetworkURL := "http://" + nmagentEndpoint +
-		"/machine/plugins/?comp=nmagent&type=NetworkManagement/joinedVirtualNetworks/" + networkID + "/api-version/1"
-	createNetworkContainerURL := "http://" + nmagentEndpoint +
-		"/machine/plugins/?comp=nmagent&type=NetworkManagement/interfaces/127.0.0.1/networkContainers/" +
-		networkContainerID + "/authenticationToken/dummyauthtoken/api-version/1"
+	joinNetworkURL := "http://" + nmagentEndpoint + "/dummyVnetURL"
+	createNetworkContainerURL := "http://" + nmagentEndpoint + "/networkContainers/dummyNCURL"
 
 	publishNCRequest := &cns.PublishNetworkContainerRequest{
 		NetworkID:                         networkID,
@@ -811,11 +808,8 @@ func TestUnpublishNCViaCNS(t *testing.T) {
 
 	networkID := "vnet1"
 	networkContainerID := "ethWebApp"
-	joinNetworkURL := "http://" + nmagentEndpoint +
-		"/machine/plugins/?comp=nmagent&type=NetworkManagement/joinedVirtualNetworks/" + networkID + "/api-version/1"
-	deleteNetworkContainerURL := "http://" + nmagentEndpoint +
-		"/machine/plugins/?comp=nmagent&type=NetworkManagement/interfaces/127.0.0.1/networkContainers/" +
-		networkContainerID + "/authenticationToken/dummyauthtoken/api-version/1/method/DELETE"
+	joinNetworkURL := "http://" + nmagentEndpoint + "/dummyVnetURL"
+	deleteNetworkContainerURL := "http://" + nmagentEndpoint + "/networkContainers/dummyNCURL"
 
 	unpublishNCRequest := &cns.UnpublishNetworkContainerRequest{
 		NetworkID:                 networkID,
