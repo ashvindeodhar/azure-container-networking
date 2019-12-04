@@ -1794,6 +1794,8 @@ func (service *HTTPRestService) joinNetwork(
 	return joinResponse, joinErr, err
 }
 
+asdasdasdasd
+
 // Publish Network Container by calling nmagent
 func (service *HTTPRestService) publishNetworkContainer(w http.ResponseWriter, r *http.Request) {
 	log.Printf("[Azure-CNS] PublishNetworkContainer")
