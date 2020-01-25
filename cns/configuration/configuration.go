@@ -46,7 +46,7 @@ func ReadConfig() (CNSConfig, error) {
 	// Check if env set for config path otherwise use default path
 	configpath, found := os.LookupEnv("CNS_CONFIGURATION_PATH")
 	if !found {
-		dir, err := filepath.Abs(filepath.Dir(os.Args[0]))
+		dir, err := os.Getwd()
 		if err != nil {
 			logger.Errorf("[Configuration] Failed to find exe dir:%v", err)
 			return cnsConfig, err
