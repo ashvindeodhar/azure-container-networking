@@ -14,6 +14,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -322,4 +323,24 @@ func GetAzureCloud(url string) (string, error) {
 	}
 
 	return strings.TrimSpace(string(bodyBytes)), nil
+}
+
+func GetExecutableDirectory() (string, error) {
+	var (
+		dir string
+		ex  string
+		err error
+	)
+	ex, err = os.Executable()
+	if err == nil {
+		dir = filepath.Dir(ex)
+	} else {
+		var exReal string
+		exReal, err = filepath.EvalSymlinks(ex)
+		if err == nil {
+			dir = filepath.Dir(exReal)
+		}
+	}
+
+	return dir, err
 }
