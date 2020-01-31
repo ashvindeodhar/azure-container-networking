@@ -336,6 +336,9 @@ func GetExecutableDirectory() (string, error) {
 		dir = filepath.Dir(ex)
 	} else {
 		var exReal string
+		// If a symlink was used to start the process, depending on the operating system,
+		// the result might be the symlink or the path it pointed to.
+		// filepath.EvalSymlinks returns stable results
 		exReal, err = filepath.EvalSymlinks(ex)
 		if err == nil {
 			dir = filepath.Dir(exReal)

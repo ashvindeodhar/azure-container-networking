@@ -54,7 +54,6 @@ func ReadConfig() (CNSConfig, error) {
 		}
 
 		configpath = filepath.Join(dir, defaultConfigName)
-		//dir + string(os.PathSeparator) + defaultConfigName
 	}
 
 	logger.Printf("[Configuration] Config path:%s", configpath)
