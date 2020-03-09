@@ -11,6 +11,7 @@
          "podNamespaceForDualNetwork":[],
          "enableExactMatchForPodName": false,
          "enableSnatOnHost":true,
+         "DisableHairpinOnHostInterface": true,
          "ipam":{
             "type":"azure-vnet-ipam"
          },
