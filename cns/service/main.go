@@ -13,6 +13,8 @@ import (
 	"syscall"
 	"time"
 
+	localtls "github.com/Azure/azure-container-networking/server/tls"
+
 	"github.com/Azure/azure-container-networking/cns/ipampoolmonitor"
 
 	"github.com/Azure/azure-container-networking/aitelemetry"
@@ -381,6 +383,14 @@ func main() {
 
 	// Start CNS.
 	if httpRestService != nil {
+		if cnsconfig.UseHTTPS {
+			config.TlsSettings = localtls.TlsSettings{
+				TLSSubjectName:     cnsconfig.TLSSubjectName,
+				TLSCertificatePath: cnsconfig.TLSCertificatePath,
+				TLSEndpoint:        cnsconfig.TLSEndpoint,
+			}
+		}
+
 		err = httpRestService.Start(&config)
 		if err != nil {
 			logger.Errorf("Failed to start CNS, err:%v.\n", err)
