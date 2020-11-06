@@ -58,7 +58,7 @@ func RegisterNode(httpRestService cns.HTTPService, dncEP, infraVnet, nodeID stri
 		break
 	}
 
-	logger.Printf("[dncclient] Successfullt registered node: %s", nodeID)
+	logger.Printf("[dncclient] Successfully registered node: %s", nodeID)
 }
 
 func registerNode(httpCl *http.Client, url string, body io.Reader) (cns.SetOrchestratorTypeRequest, error) {
