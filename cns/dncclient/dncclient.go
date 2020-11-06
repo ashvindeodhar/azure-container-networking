@@ -4,9 +4,9 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"runtime"
-	"strconv"
 	"time"
 
 	"github.com/Azure/azure-container-networking/cns"
@@ -20,7 +20,8 @@ const (
 	// SyncNodeNetworkContainersURLFmt: /networks/{infraNetworkID}/node/{nodeID}/networkcontainers
 	syncNodeNetworkContainersURLFmt = "%s/networks/%s/node/%s/networkcontainers%s"
 
-	dncApiVersion = "?api-version=2018-03-01"
+	dncAPIVersion             = "?api-version=2018-03-01"
+	registerNodeRetryInterval = 5 * time.Second
 )
 
 // NodeRegistrationRequest - Struct to hold node registration request.
@@ -33,48 +34,55 @@ func RegisterNode(httpRestService cns.HTTPService, dncEP, infraVnet, nodeID stri
 	logger.Printf("[dncclient] Registering node: %s with Infrastructure Network: %s dncEP: %s", nodeID, infraVnet, dncEP)
 
 	var (
-		registerNodeURL = fmt.Sprintf(registerNodeURLFmt, dncEP, infraVnet, nodeID, dncApiVersion)
-		response        *http.Response
-		err             = fmt.Errorf("")
+		registerNodeURL = fmt.Sprintf(registerNodeURLFmt, dncEP, infraVnet, nodeID, dncAPIVersion)
 		body            bytes.Buffer
 		httpc           = acn.GetHttpClient()
 	)
 
+	// Create a body with number of CPU cores
 	nodeRegistrationRequest := NodeRegistrationRequest{
 		NumCores: runtime.NumCPU(),
 	}
 	json.NewEncoder(&body).Encode(nodeRegistrationRequest)
 
-	for sleep := true; err != nil; sleep = true {
-		response, err = httpc.Post(registerNodeURL, "application/json", &body)
-		if err == nil {
-			if response.StatusCode == http.StatusOK {
-				var req cns.SetOrchestratorTypeRequest
-				json.NewDecoder(response.Body).Decode(&req)
-				httpRestService.SetNodeOrchestrator(&req)
-				sleep = false
-			} else {
-				err = fmt.Errorf("[dncclient] Failed to register node with http status code %s", strconv.Itoa(response.StatusCode))
-				logger.Errorf(err.Error())
-			}
-
-			response.Body.Close()
-		} else {
-			logger.Errorf("[dncclient] Failed to register node with err: %+v", err)
+	for {
+		orchestratorDetails, err := registerNode(httpc, registerNodeURL, &body)
+		if err != nil {
+			logger.Errorf("[dncclient] Failed to register node: %s with error: %+v", nodeID, err)
+			// todo: make this interval configurable
+			time.Sleep(registerNodeRetryInterval)
+			continue
 		}
 
-		if sleep {
-			time.Sleep(acn.FiveSeconds)
-		}
+		httpRestService.SetNodeOrchestrator(&orchestratorDetails)
+		break
 	}
 
-	logger.Printf("[dncclient] Node: %s Registered", nodeID)
+	logger.Printf("[dncclient] Successfullt registered node: %s", nodeID)
+}
+
+func registerNode(httpCl *http.Client, url string, body io.Reader) (cns.SetOrchestratorTypeRequest, error) {
+	var orchestratorDetails cns.SetOrchestratorTypeRequest
+	response, err := httpCl.Post(url, acn.JsonContent, body)
+	if err != nil {
+		return orchestratorDetails, err
+	}
+
+	defer response.Body.Close()
+
+	if response.StatusCode != http.StatusOK {
+		return orchestratorDetails,
+			fmt.Errorf("[dncclient] Failed to register node with http status code: %d", response.StatusCode)
+	}
+
+	_ = json.NewDecoder(response.Body).Decode(&orchestratorDetails)
+	return orchestratorDetails, nil
 }
 
 // SyncNodeNcStatus retrieves the NCs scheduled on this node by DNC
 func SyncNodeNcStatus(dncEP, infraVnet, nodeID string) (cns.NodeInfoResponse, error) {
 	var (
-		syncNodeNcStatusURL = fmt.Sprintf(syncNodeNetworkContainersURLFmt, dncEP, infraVnet, nodeID, dncApiVersion)
+		syncNodeNcStatusURL = fmt.Sprintf(syncNodeNetworkContainersURLFmt, dncEP, infraVnet, nodeID, dncAPIVersion)
 		nodeInfoResponse    cns.NodeInfoResponse
 		httpc               = acn.GetHttpClient()
 	)
@@ -82,15 +90,16 @@ func SyncNodeNcStatus(dncEP, infraVnet, nodeID string) (cns.NodeInfoResponse, er
 	logger.Printf("[dncclient] SyncNodeNcStatus: Node: %s, InfraVnet: %s", nodeID, infraVnet)
 
 	response, err := httpc.Get(syncNodeNcStatusURL)
-	if err == nil {
-		if response.StatusCode == http.StatusOK {
-			err = json.NewDecoder(response.Body).Decode(&nodeInfoResponse)
-		} else {
-			err = fmt.Errorf("%d", response.StatusCode)
-		}
-
-		response.Body.Close()
+	if err != nil {
+		return nodeInfoResponse, err
 	}
+
+	if response.StatusCode == http.StatusOK {
+		err = json.NewDecoder(response.Body).Decode(&nodeInfoResponse)
+	} else {
+		err = fmt.Errorf("%d", response.StatusCode)
+	}
+	response.Body.Close()
 
 	return nodeInfoResponse, err
 }
