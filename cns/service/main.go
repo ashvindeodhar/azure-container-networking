@@ -4,15 +4,11 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"net/http"
 	"os"
 	"os/signal"
-	"runtime"
-	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -26,6 +22,7 @@ import (
 	"github.com/Azure/azure-container-networking/cns/cnsclient"
 	"github.com/Azure/azure-container-networking/cns/common"
 	"github.com/Azure/azure-container-networking/cns/configuration"
+	"github.com/Azure/azure-container-networking/cns/dncclient"
 	"github.com/Azure/azure-container-networking/cns/hnsclient"
 	"github.com/Azure/azure-container-networking/cns/imdsclient"
 	"github.com/Azure/azure-container-networking/cns/logger"
@@ -44,7 +41,6 @@ const (
 	pluginName                        = "azure-vnet"
 	defaultCNINetworkConfigFileName   = "10-azure.conflist"
 	configFileName                    = "config.json"
-	dncApiVersion                     = "?api-version=2018-03-01"
 	poolIPAMRefreshRateInMilliseconds = 1000
 )
 
@@ -245,45 +241,6 @@ func printVersion() {
 	fmt.Printf("Version %v\n", version)
 }
 
-// Try to register node with DNC when CNS is started in managed DNC mode
-func registerNode(httpRestService cns.HTTPService, dncEP, infraVnet, nodeID string) {
-	logger.Printf("[Azure CNS] Registering node %s with Infrastructure Network: %s PrivateEndpoint: %s", nodeID, infraVnet, dncEP)
-
-	var (
-		numCPU   = runtime.NumCPU()
-		url      = fmt.Sprintf(acn.RegisterNodeURLFmt, dncEP, infraVnet, nodeID, numCPU, dncApiVersion)
-		response *http.Response
-		err      = fmt.Errorf("")
-		body     bytes.Buffer
-		httpc    = acn.GetHttpClient()
-	)
-
-	for sleep := true; err != nil; sleep = true {
-		response, err = httpc.Post(url, "application/json", &body)
-		if err == nil {
-			if response.StatusCode == http.StatusCreated {
-				var req cns.SetOrchestratorTypeRequest
-				json.NewDecoder(response.Body).Decode(&req)
-				httpRestService.SetNodeOrchestrator(&req)
-				sleep = false
-			} else {
-				err = fmt.Errorf("[Azure CNS] Failed to register node with http status code %s", strconv.Itoa(response.StatusCode))
-				logger.Errorf(err.Error())
-			}
-
-			response.Body.Close()
-		} else {
-			logger.Errorf("[Azure CNS] Failed to register node with err: %+v", err)
-		}
-
-		if sleep {
-			time.Sleep(acn.FiveSeconds)
-		}
-	}
-
-	logger.Printf("[Azure CNS] Node Registered")
-}
-
 // Main is the entry point for CNS.
 func main() {
 	// Initialize and parse command line arguments.
@@ -451,12 +408,12 @@ func main() {
 		httpRestService.SetOption(acn.OptInfrastructureNetworkID, infravnet)
 		httpRestService.SetOption(acn.OptNodeID, nodeID)
 
-		registerNode(httpRestService, privateEndpoint, infravnet, nodeID)
+		dncclient.RegisterNode(httpRestService, privateEndpoint, infravnet, nodeID)
 		go func(ep, vnet, node string) {
 			// Periodically poll DNC for node updates
 			for {
 				<-time.NewTicker(time.Duration(cnsconfig.ManagedSettings.NodeSyncIntervalInSeconds) * time.Second).C
-				httpRestService.SyncNodeStatus(ep, vnet, node, json.RawMessage{})
+				httpRestService.SyncNodeNcStatus(ep, vnet, node, json.RawMessage{})
 			}
 		}(privateEndpoint, infravnet, nodeID)
 	} else if config.ChannelMode == cns.CRD {
