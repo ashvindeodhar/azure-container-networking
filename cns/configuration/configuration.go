@@ -52,9 +52,10 @@ type TelemetrySettings struct {
 }
 
 type ManagedSettings struct {
-	PrivateEndpoint           string
+	DncEndpointDns            string
 	InfrastructureNetworkID   string
 	NodeID                    string
+	NodeManagedIdentity       string
 	NodeSyncIntervalInSeconds int
 }
 
@@ -127,4 +128,19 @@ func SetCNSConfigDefaults(config *CNSConfig) {
 	if config.ChannelMode == "" {
 		config.ChannelMode = cns.Direct
 	}
+}
+
+// ValidateManagedSettings validates the ManagedSettings if CNS is running is the managed mode.
+// This function validates if all the required fields are set in the configuration.
+func ValidateManagedSettings(config *CNSConfig) bool {
+	if config.ChannelMode == cns.Managed {
+		if config.ManagedSettings.DncEndpointDns == "" ||
+			config.ManagedSettings.InfrastructureNetworkID == "" ||
+			config.ManagedSettings.NodeID == "" ||
+			config.ManagedSettings.NodeManagedIdentity == "" {
+			return false
+		}
+	}
+
+	return true
 }

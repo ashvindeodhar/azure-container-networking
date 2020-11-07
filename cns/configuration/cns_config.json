@@ -9,9 +9,10 @@
         "SnapshotIntervalInMins": 60
     },
     "ManagedSettings": {
-        "PrivateEndpoint": "",
+        "DncEndpointDns": "",
         "InfrastructureNetworkID": "",
         "NodeID": "",
+        "NodeManagedIdentity": "",
         "NodeSyncIntervalInSeconds": 30
     },
     "ChannelMode": "Direct",

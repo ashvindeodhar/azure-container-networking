@@ -194,34 +194,6 @@ var args = acn.ArgumentList{
 		DefaultValue: platform.CNMRuntimePath,
 	},
 	{
-		Name:         acn.OptPrivateEndpoint,
-		Shorthand:    acn.OptPrivateEndpointAlias,
-		Description:  "Set private endpoint",
-		Type:         "string",
-		DefaultValue: "",
-	},
-	{
-		Name:         acn.OptInfrastructureNetworkID,
-		Shorthand:    acn.OptInfrastructureNetworkIDAlias,
-		Description:  "Set infrastructure network ID",
-		Type:         "string",
-		DefaultValue: "",
-	},
-	{
-		Name:         acn.OptNodeID,
-		Shorthand:    acn.OptNodeIDAlias,
-		Description:  "Set node name/ID",
-		Type:         "string",
-		DefaultValue: "",
-	},
-	{
-		Name:         acn.OptManaged,
-		Shorthand:    acn.OptManagedAlias,
-		Description:  "Set to true to enable managed mode. This is deprecated in favor of cns_config.json",
-		Type:         "bool",
-		DefaultValue: false,
-	},
-	{
 		Name:         acn.OptDebugCmd,
 		Shorthand:    acn.OptDebugCmdAlias,
 		Description:  "Debug flag to retrieve IPconfigs, available values: allocated, available, all",
@@ -265,9 +237,6 @@ func main() {
 	httpConnectionTimeout := acn.GetArg(acn.OptHttpConnectionTimeout).(int)
 	httpResponseHeaderTimeout := acn.GetArg(acn.OptHttpResponseHeaderTimeout).(int)
 	storeFileLocation := acn.GetArg(acn.OptStoreFileLocation).(string)
-	privateEndpoint := acn.GetArg(acn.OptPrivateEndpoint).(string)
-	infravnet := acn.GetArg(acn.OptInfrastructureNetworkID).(string)
-	nodeID := acn.GetArg(acn.OptNodeID).(string)
 	clientDebugCmd := acn.GetArg(acn.OptDebugCmd).(string)
 	clientDebugArg := acn.GetArg(acn.OptDebugArg).(string)
 
@@ -313,13 +282,11 @@ func main() {
 
 	if cnsconfig.ChannelMode == cns.Managed {
 		config.ChannelMode = cns.Managed
-		privateEndpoint = cnsconfig.ManagedSettings.PrivateEndpoint
+		privateEndpoint = cnsconfig.ManagedSettings.DncEndpointDns
 		infravnet = cnsconfig.ManagedSettings.InfrastructureNetworkID
 		nodeID = cnsconfig.ManagedSettings.NodeID
 	} else if cnsconfig.ChannelMode == cns.CRD {
 		config.ChannelMode = cns.CRD
-	} else if acn.GetArg(acn.OptManaged).(bool) {
-		config.ChannelMode = cns.Managed
 	}
 
 	disableTelemetry := cnsconfig.TelemetrySettings.DisableAll
@@ -381,6 +348,9 @@ func main() {
 		}
 	}
 
+	dncclient.Temp()
+	return
+
 	// Start CNS.
 	if httpRestService != nil {
 		if cnsconfig.UseHTTPS {
@@ -404,16 +374,20 @@ func main() {
 		go httpRestService.SendNCSnapShotPeriodically(cnsconfig.TelemetrySettings.SnapshotIntervalInMins, stopSnapshots)
 	}
 
-	// If CNS is running on managed DNC mode
+	// If CNS is running with managed DNC mode
 	if config.ChannelMode == cns.Managed {
-		if privateEndpoint == "" || infravnet == "" || nodeID == "" {
-			logger.Errorf("[Azure CNS] Missing required values to run in managed mode: PrivateEndpoint: %s InfrastructureNetworkID: %s NodeID: %s",
-				privateEndpoint,
-				infravnet,
-				nodeID)
+		// Return if the managed settings are invalid
+		if !configuration.ValidateManagedSettings(&cnsconfig) {
+			logger.Errorf("[Azure CNS] Missing ManagedSettings: [%+v] with managed ChannelMode", cnsconfig.ManagedSettings)
 			return
 		}
 
+		dncEpDns := cnsconfig.ManagedSettings.DncEndpointDns
+		infraVnet := cnsconfig.ManagedSettings.InfrastructureNetworkID
+		nodeID := cnsconfig.ManagedSettings.NodeID
+		nodeManagedIdentity := cnsconfig.ManagedSettings.NodeManagedIdentity
+
+		// todo: set this back or if there is a better way to do this
 		httpRestService.SetOption(acn.OptPrivateEndpoint, privateEndpoint)
 		httpRestService.SetOption(acn.OptInfrastructureNetworkID, infravnet)
 		httpRestService.SetOption(acn.OptNodeID, nodeID)
