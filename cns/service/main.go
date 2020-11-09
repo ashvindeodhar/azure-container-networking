@@ -247,8 +247,9 @@ func main() {
 
 	// Initialize CNS.
 	var (
-		err    error
-		config common.ServiceConfig
+		err       error
+		config    common.ServiceConfig
+		dncClient *dncclient.DNCClient
 	)
 
 	config.Version = version
@@ -280,14 +281,7 @@ func main() {
 	configuration.SetCNSConfigDefaults(&cnsconfig)
 	logger.Printf("[Azure CNS] Read config :%+v", cnsconfig)
 
-	if cnsconfig.ChannelMode == cns.Managed {
-		config.ChannelMode = cns.Managed
-		privateEndpoint = cnsconfig.ManagedSettings.DncEndpointDns
-		infravnet = cnsconfig.ManagedSettings.InfrastructureNetworkID
-		nodeID = cnsconfig.ManagedSettings.NodeID
-	} else if cnsconfig.ChannelMode == cns.CRD {
-		config.ChannelMode = cns.CRD
-	}
+	config.ChannelMode = cnsconfig.ChannelMode
 
 	disableTelemetry := cnsconfig.TelemetrySettings.DisableAll
 	if !disableTelemetry {
@@ -323,8 +317,22 @@ func main() {
 		return
 	}
 
+	// Create DNCClient if CNS is running with managed DNC mode
+	if config.ChannelMode == cns.Managed {
+		// Return if the managed settings are invalid
+		if !configuration.ValidateManagedSettings(&cnsconfig) {
+			logger.Errorf("[Azure CNS] Missing ManagedSettings: [%+v] with ChannelMode set to managed", cnsconfig.ManagedSettings)
+			return
+		}
+
+		if dncClient, err = dncclient.NewDNCClient(&cnsconfig.ManagedSettings); err != nil {
+			logger.Errorf(err.Error())
+			return
+		}
+	}
+
 	// Create CNS object.
-	httpRestService, err := restserver.NewHTTPRestService(&config, new(imdsclient.ImdsClient))
+	httpRestService, err := restserver.NewHTTPRestService(&config, new(imdsclient.ImdsClient), dncClient)
 	if err != nil {
 		logger.Errorf("Failed to create CNS object, err:%v.\n", err)
 		return
@@ -348,8 +356,8 @@ func main() {
 		}
 	}
 
-	dncclient.Temp()
-	return
+	//dncclient.Temp()
+	//return
 
 	// Start CNS.
 	if httpRestService != nil {
@@ -376,30 +384,16 @@ func main() {
 
 	// If CNS is running with managed DNC mode
 	if config.ChannelMode == cns.Managed {
-		// Return if the managed settings are invalid
-		if !configuration.ValidateManagedSettings(&cnsconfig) {
-			logger.Errorf("[Azure CNS] Missing ManagedSettings: [%+v] with managed ChannelMode", cnsconfig.ManagedSettings)
-			return
-		}
+		orchestratorDetails := dncClient.RegisterNode()
+		httpRestService.SetNodeOrchestrator(orchestratorDetails)
 
-		dncEpDns := cnsconfig.ManagedSettings.DncEndpointDns
-		infraVnet := cnsconfig.ManagedSettings.InfrastructureNetworkID
-		nodeID := cnsconfig.ManagedSettings.NodeID
-		nodeManagedIdentity := cnsconfig.ManagedSettings.NodeManagedIdentity
-
-		// todo: set this back or if there is a better way to do this
-		httpRestService.SetOption(acn.OptPrivateEndpoint, privateEndpoint)
-		httpRestService.SetOption(acn.OptInfrastructureNetworkID, infravnet)
-		httpRestService.SetOption(acn.OptNodeID, nodeID)
-
-		dncclient.RegisterNode(httpRestService, privateEndpoint, infravnet, nodeID)
-		go func(ep, vnet, node string) {
-			// Periodically poll DNC for node updates
+		go func() {
+			// Periodically poll DNC for node updates for network containers
 			for {
 				<-time.NewTicker(time.Duration(cnsconfig.ManagedSettings.NodeSyncIntervalInSeconds) * time.Second).C
-				httpRestService.SyncNodeNcStatus(ep, vnet, node, json.RawMessage{})
+				httpRestService.SyncNodeNcStatus(json.RawMessage{})
 			}
-		}(privateEndpoint, infravnet, nodeID)
+		}()
 	} else if config.ChannelMode == cns.CRD {
 		var requestController requestcontroller.RequestController
 

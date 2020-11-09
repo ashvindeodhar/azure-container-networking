@@ -221,7 +221,7 @@ func (fake *HTTPServiceFake) SetNodeOrchestrator(*cns.SetOrchestratorTypeRequest
 
 }
 
-func (fake *HTTPServiceFake) SyncNodeNcStatus(string, string, string, json.RawMessage) (int, string) {
+func (fake *HTTPServiceFake) SyncNodeNcStatus(json.RawMessage) (int, string) {
 	return 0, ""
 }
 

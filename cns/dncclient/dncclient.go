@@ -9,7 +9,9 @@ import (
 	"runtime"
 	"time"
 
+	//"github.com/Azure/azure-container-networking/cns"
 	"github.com/Azure/azure-container-networking/cns"
+	"github.com/Azure/azure-container-networking/cns/configuration"
 	"github.com/Azure/azure-container-networking/cns/logger"
 	acn "github.com/Azure/azure-container-networking/common"
 
@@ -26,48 +28,69 @@ const (
 
 	dncAPIVersion             = "?api-version=2018-03-01"
 	registerNodeRetryInterval = 5 * time.Second
+	dncResourceEndpoint       = "https://management.azure.com/"
+
+	httpReqHeaderKeyAuth   = "Authorization"
+	httpReqHeaderKeyAccept = "Accept"
 )
 
-// token fetcher
-/*
-tokenFetcher, err := getTokenFetcher()
-	if err != nil {
-		log.Fatalln("Error getting token fetcher. Error:", err)
-	}
-
-	ctx := context.Background()
-	spt, err := tokenFetcher.GetServicePrincipalToken(env.ResourceManagerEndpoint)
-	if err != nil {
-		log.Fatalln("Error getting service principal token. Error:", err)
-	}
-
-	token, err := ad.GetFreshToken(ctx, spt)
-	if err != nil {
-		log.Fatalln("Error getting ARM token. Error:", err)
-	}
-*/
+type DNCClient struct {
+	dncEndpointDns      string
+	infraVnet           string
+	nodeID              string
+	nodeManagedIdentity string
+	tokenFetcher        ad.TokenFetcher
+}
 
 // NodeRegistrationRequest - Struct to hold node registration request.
 type NodeRegistrationRequest struct {
 	NumCores int `json:"NumCores"`
 }
 
-func getTokenFetcher() (ad.TokenFetcher, error) {
-	/*
-		if config.IdentitySettings.MSIResourceID != "" {
-			return &ad.MSITokenFetcher{ResourceID: config.IdentitySettings.MSIResourceID}, nil
-		}
+// NewDNCClient creates a new DNCClient
+func NewDNCClient(
+	managedSettings *configuration.ManagedSettings) (*DNCClient, error) {
+	//clientID := "8ad8b90c-f31b-4c6e-ac7a-37b65522a153"
+	tokenFetcher, err := getTokenFetcher(managedSettings.NodeManagedIdentity)
+	if err != nil {
+		return nil, fmt.Errorf("Failed to create DNC client due to error: %v", err)
+	}
 
-		return ad.TokenFetcher{}, fmt.Errorf("[dncclient] Invalid MSI resource ID")
-	*/
-	//msi := "/subscriptions/9b8218f9-902a-4d20-a65c-e98acec5362f/resourceGroups/dncTestCluster1/providers/Microsoft.ManagedIdentity/userAssignedIdentities/cns-msi"
-	// return &ad.MSITokenFetcher{ResourceID: msi}, nil
-	clientID := "8ad8b90c-f31b-4c6e-ac7a-37b65522a153"
-	return &ad.MSITokenFetcher{ClientID: clientID}, nil
+	client := &DNCClient{
+		dncEndpointDns:      managedSettings.DncEndpointDns,
+		infraVnet:           managedSettings.InfrastructureNetworkID,
+		nodeID:              managedSettings.NodeID,
+		nodeManagedIdentity: managedSettings.NodeManagedIdentity,
+		tokenFetcher:        tokenFetcher,
+	}
+
+	return client, nil
 }
 
-//https://management.azure.com/
+func getTokenFetcher(
+	nodeManagedIdentity string) (ad.TokenFetcher, error) {
+	if nodeManagedIdentity != "" {
+		return &ad.MSITokenFetcher{ClientID: nodeManagedIdentity}, nil
+	}
 
+	return nil, fmt.Errorf("Empty Node managed identity")
+}
+
+func (dc *DNCClient) getFreshToken() (string, error) {
+	spt, err := dc.tokenFetcher.GetServicePrincipalToken(dncResourceEndpoint)
+	if err != nil {
+		return "", fmt.Errorf("Failed to get Service Principle token. Error: %v", err)
+	}
+
+	token, err := ad.GetFreshToken(context.Background(), spt)
+	if err != nil {
+		return "", fmt.Errorf("Failed to get AAD token. Error: %v", err)
+	}
+
+	return token, nil
+}
+
+/*
 func Temp() error {
 	tokenFetcher, err := getTokenFetcher()
 	if err != nil {
@@ -91,15 +114,18 @@ func Temp() error {
 	logger.Printf("[tempdebug] success: %v", token)
 	return nil
 }
+*/
 
 // RegisterNode registers the node with managed DNC
-func RegisterNode(httpRestService cns.HTTPService, dncEP, infraVnet, nodeID string) {
-	logger.Printf("[dncclient] Registering node: %s with Infrastructure Network: %s dncEP: %s", nodeID, infraVnet, dncEP)
+func (dc *DNCClient) RegisterNode() *cns.SetOrchestratorTypeRequest {
+	logger.Printf("[dncclient] Registering node: %s with Infrastructure Network: %s dncEP: %s",
+		dc.nodeID, dc.infraVnet, dc.dncEndpointDns)
 
 	var (
-		registerNodeURL = fmt.Sprintf(registerNodeURLFmt, dncEP, infraVnet, nodeID, dncAPIVersion)
-		body            bytes.Buffer
-		httpc           = acn.GetHttpClient()
+		registerNodeURL = fmt.Sprintf(registerNodeURLFmt, dc.dncEndpointDns,
+			dc.infraVnet, dc.nodeID, dncAPIVersion)
+		body  bytes.Buffer
+		httpc = acn.GetHttpClient()
 	)
 
 	// Create a body with number of CPU cores
@@ -109,24 +135,35 @@ func RegisterNode(httpRestService cns.HTTPService, dncEP, infraVnet, nodeID stri
 	json.NewEncoder(&body).Encode(nodeRegistrationRequest)
 
 	for {
-		orchestratorDetails, err := registerNode(httpc, registerNodeURL, &body)
+		orchestratorDetails, err := dc.registerNode(httpc, registerNodeURL, &body)
 		if err != nil {
-			logger.Errorf("[dncclient] Failed to register node: %s with error: %+v", nodeID, err)
+			logger.Errorf("[dncclient] Failed to register node: %s with error: %+v", dc.nodeID, err)
 			// todo: make this interval configurable
 			time.Sleep(registerNodeRetryInterval)
 			continue
 		}
 
-		httpRestService.SetNodeOrchestrator(&orchestratorDetails)
-		break
+		logger.Printf("[dncclient] Successfully registered node: %s", dc.nodeID)
+		return &orchestratorDetails
 	}
-
-	logger.Printf("[dncclient] Successfully registered node: %s", nodeID)
 }
 
-func registerNode(httpCl *http.Client, url string, body io.Reader) (cns.SetOrchestratorTypeRequest, error) {
+func (dc *DNCClient) registerNode(httpCl *http.Client, url string, body io.Reader) (cns.SetOrchestratorTypeRequest, error) {
 	var orchestratorDetails cns.SetOrchestratorTypeRequest
-	response, err := httpCl.Post(url, acn.JsonContent, body)
+	token, err := dc.getFreshToken()
+	if err != nil {
+		return orchestratorDetails, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, url, body)
+	if err != nil {
+		return orchestratorDetails, err
+	}
+
+	req.Header.Set(httpReqHeaderKeyAuth, "Bearer "+token)
+	req.Header.Set(httpReqHeaderKeyAccept, acn.JsonContent)
+	response, err := httpCl.Do(req)
+	//response, err := httpCl.Post(url, acn.JsonContent, body)
 	if err != nil {
 		return orchestratorDetails, err
 	}
@@ -143,16 +180,30 @@ func registerNode(httpCl *http.Client, url string, body io.Reader) (cns.SetOrche
 }
 
 // SyncNodeNcStatus retrieves the NCs scheduled on this node by DNC
-func SyncNodeNcStatus(dncEP, infraVnet, nodeID string) (cns.NodeInfoResponse, error) {
+func (dc *DNCClient) SyncNodeNcStatus() (cns.NodeInfoResponse, error) {
 	var (
-		syncNodeNcStatusURL = fmt.Sprintf(syncNodeNetworkContainersURLFmt, dncEP, infraVnet, nodeID, dncAPIVersion)
-		nodeInfoResponse    cns.NodeInfoResponse
-		httpc               = acn.GetHttpClient()
+		syncNodeNcStatusURL = fmt.Sprintf(syncNodeNetworkContainersURLFmt,
+			dc.dncEndpointDns, dc.infraVnet, dc.nodeID, dncAPIVersion)
+		nodeInfoResponse cns.NodeInfoResponse
+		httpCl           = acn.GetHttpClient()
 	)
 
-	logger.Printf("[dncclient] SyncNodeNcStatus: Node: %s, InfraVnet: %s", nodeID, infraVnet)
+	logger.Printf("[dncclient] SyncNodeNcStatus: Node: %s, InfraVnet: %s", dc.nodeID, dc.infraVnet)
 
-	response, err := httpc.Get(syncNodeNcStatusURL)
+	token, err := dc.getFreshToken()
+	if err != nil {
+		return nodeInfoResponse, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, syncNodeNcStatusURL, bytes.NewBuffer(nil))
+	if err != nil {
+		return nodeInfoResponse, err
+	}
+
+	req.Header.Set(httpReqHeaderKeyAuth, "Bearer "+token)
+	req.Header.Set(httpReqHeaderKeyAccept, acn.JsonContent)
+	response, err := httpCl.Do(req)
+	//response, err := httpc.Get(syncNodeNcStatusURL)
 	if err != nil {
 		return nodeInfoResponse, err
 	}

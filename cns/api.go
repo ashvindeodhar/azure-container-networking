@@ -36,7 +36,7 @@ type HTTPService interface {
 	common.ServiceAPI
 	SendNCSnapShotPeriodically(int, chan bool)
 	SetNodeOrchestrator(*SetOrchestratorTypeRequest)
-	SyncNodeNcStatus(string, string, string, json.RawMessage) (int, string)
+	SyncNodeNcStatus(json.RawMessage) (int, string)
 	GetPendingProgramIPConfigs() []IPConfigurationStatus
 	GetAvailableIPConfigs() []IPConfigurationStatus
 	GetAllocatedIPConfigs() []IPConfigurationStatus

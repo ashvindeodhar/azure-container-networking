@@ -12,7 +12,6 @@ import (
 	"reflect"
 
 	"github.com/Azure/azure-container-networking/cns"
-	"github.com/Azure/azure-container-networking/cns/dncclient"
 	"github.com/Azure/azure-container-networking/cns/logger"
 	"github.com/Azure/azure-container-networking/cns/nmagentclient"
 	"github.com/Azure/azure-container-networking/common"
@@ -41,9 +40,9 @@ func (service *HTTPRestService) SetNodeOrchestrator(r *cns.SetOrchestratorTypeRe
 }
 
 // SyncNodeNcStatus :- Retrieve the latest NCs scheduled on this node by DNC & returns the first occurence of returnCode and error with respect to contextFromCNI
-func (service *HTTPRestService) SyncNodeNcStatus(dncEP, infraVnet, nodeID string, contextFromCNI json.RawMessage) (returnCode int, errStr string) {
+func (service *HTTPRestService) SyncNodeNcStatus(contextFromCNI json.RawMessage) (returnCode int, errStr string) {
 	logger.Printf("[Azure CNS] SyncNodeNcStatus")
-	nodeInfoResponse, err := dncclient.SyncNodeNcStatus(dncEP, infraVnet, nodeID)
+	nodeInfoResponse, err := service.dncClient.SyncNodeNcStatus()
 	if err != nil {
 		returnCode = UnexpectedError
 		errStr = fmt.Sprintf("[Azure-CNS] Failed to sync node with error: %+v", err)
