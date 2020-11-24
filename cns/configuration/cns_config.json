@@ -13,6 +13,7 @@
         "InfrastructureNetworkID": "",
         "NodeID": "",
         "NodeManagedIdentity": "",
+        "DncTlsCertificateSubjectName": "",
         "NodeSyncIntervalInSeconds": 30
     },
     "ChannelMode": "Direct",

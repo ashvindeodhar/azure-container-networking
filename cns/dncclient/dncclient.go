@@ -2,9 +2,11 @@ package dncclient
 
 import (
 	"bytes"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"runtime"
 	"time"
@@ -21,14 +23,18 @@ import (
 )
 
 const (
-	// RegisterNodeURLFmt: /networks/{infraNetworkID}/node/{nodeID}
+	// Note: RegisterNodeURLFmt: /networks/{infraNetworkID}/node/{nodeID}
 	registerNodeURLFmt = "%s/networks/%s/node/%s%s"
-	// SyncNodeNetworkContainersURLFmt: /networks/{infraNetworkID}/node/{nodeID}/networkcontainers
+	// Note: SyncNodeNetworkContainersURLFmt: /networks/{infraNetworkID}/node/{nodeID}/networkcontainers
 	syncNodeNetworkContainersURLFmt = "%s/networks/%s/node/%s/networkcontainers%s"
 
 	dncAPIVersion             = "?api-version=2018-03-01"
 	registerNodeRetryInterval = 5 * time.Second
-	dncResourceEndpoint       = "https://management.azure.com/"
+	// TODO: Reset the resource endpoint to dnc.azure.com once the issue with
+	// first party portal encryption is resolved. Using the 3rd party app resource ID as
+	// a workaround for testing.
+	//dncResourceEndpoint       = "https://dnc.azure.com/"
+	dncResourceEndpoint = "faabc326-f53f-40a3-b378-4bc9c7ae9130"
 
 	httpReqHeaderKeyAuth   = "Authorization"
 	httpReqHeaderKeyAccept = "Accept"
@@ -40,6 +46,7 @@ type DNCClient struct {
 	nodeID              string
 	nodeManagedIdentity string
 	tokenFetcher        ad.TokenFetcher
+	httpClient          *http.Client
 }
 
 // NodeRegistrationRequest - Struct to hold node registration request.
@@ -50,10 +57,28 @@ type NodeRegistrationRequest struct {
 // NewDNCClient creates a new DNCClient
 func NewDNCClient(
 	managedSettings *configuration.ManagedSettings) (*DNCClient, error) {
-	//clientID := "8ad8b90c-f31b-4c6e-ac7a-37b65522a153"
 	tokenFetcher, err := getTokenFetcher(managedSettings.NodeManagedIdentity)
 	if err != nil {
 		return nil, fmt.Errorf("Failed to create DNC client due to error: %v", err)
+	}
+
+	/*
+			"HttpClientSettings": {
+		        "ConnectionTimeout": 5,
+		        "ResponseHeaderTimeout": 120,
+		        "MaxIdleConnsPerHost": 100,
+		        "IdleConnTimeout": 90
+		    },
+	*/
+
+	httpCl := &http.Client{
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{ServerName: managedSettings.DncTlsCertificateSubjectName},
+			DialContext: (&net.Dialer{
+				Timeout: time.Duration(5 /*config.HttpClientSettings.ConnectionTimeout*/) * time.Second,
+			}).DialContext,
+			ResponseHeaderTimeout: time.Duration(120 /*config.HttpClientSettings.ResponseHeaderTimeout*/) * time.Second,
+		},
 	}
 
 	client := &DNCClient{
@@ -62,6 +87,7 @@ func NewDNCClient(
 		nodeID:              managedSettings.NodeID,
 		nodeManagedIdentity: managedSettings.NodeManagedIdentity,
 		tokenFetcher:        tokenFetcher,
+		httpClient:          httpCl,
 	}
 
 	return client, nil
@@ -90,32 +116,6 @@ func (dc *DNCClient) getFreshToken() (string, error) {
 	return token, nil
 }
 
-/*
-func Temp() error {
-	tokenFetcher, err := getTokenFetcher()
-	if err != nil {
-		logger.Printf("[tempdebug] err: %v", err)
-		return err
-	}
-
-	spt, err := tokenFetcher.GetServicePrincipalToken("https://management.azure.com/")
-	if err != nil {
-		logger.Printf("[tempdebug2] err: %v", err)
-		return err
-	}
-
-	ctx := context.Background()
-	token, err := ad.GetFreshToken(ctx, spt)
-	if err != nil {
-		logger.Printf("[tempdebug3] err: %v", err)
-		return err
-	}
-
-	logger.Printf("[tempdebug] success: %v", token)
-	return nil
-}
-*/
-
 // RegisterNode registers the node with managed DNC
 func (dc *DNCClient) RegisterNode() *cns.SetOrchestratorTypeRequest {
 	logger.Printf("[dncclient] Registering node: %s with Infrastructure Network: %s dncEP: %s",
@@ -124,8 +124,7 @@ func (dc *DNCClient) RegisterNode() *cns.SetOrchestratorTypeRequest {
 	var (
 		registerNodeURL = fmt.Sprintf(registerNodeURLFmt, dc.dncEndpointDns,
 			dc.infraVnet, dc.nodeID, dncAPIVersion)
-		body  bytes.Buffer
-		httpc = acn.GetHttpClient()
+		body bytes.Buffer
 	)
 
 	// Create a body with number of CPU cores
@@ -135,10 +134,10 @@ func (dc *DNCClient) RegisterNode() *cns.SetOrchestratorTypeRequest {
 	json.NewEncoder(&body).Encode(nodeRegistrationRequest)
 
 	for {
-		orchestratorDetails, err := dc.registerNode(httpc, registerNodeURL, &body)
+		orchestratorDetails, err := dc.registerNode(registerNodeURL, &body)
 		if err != nil {
 			logger.Errorf("[dncclient] Failed to register node: %s with error: %+v", dc.nodeID, err)
-			// todo: make this interval configurable
+			// TODO: make this interval configurable
 			time.Sleep(registerNodeRetryInterval)
 			continue
 		}
@@ -148,7 +147,7 @@ func (dc *DNCClient) RegisterNode() *cns.SetOrchestratorTypeRequest {
 	}
 }
 
-func (dc *DNCClient) registerNode(httpCl *http.Client, url string, body io.Reader) (cns.SetOrchestratorTypeRequest, error) {
+func (dc *DNCClient) registerNode(url string, body io.Reader) (cns.SetOrchestratorTypeRequest, error) {
 	var orchestratorDetails cns.SetOrchestratorTypeRequest
 	token, err := dc.getFreshToken()
 	if err != nil {
@@ -162,8 +161,7 @@ func (dc *DNCClient) registerNode(httpCl *http.Client, url string, body io.Reade
 
 	req.Header.Set(httpReqHeaderKeyAuth, "Bearer "+token)
 	req.Header.Set(httpReqHeaderKeyAccept, acn.JsonContent)
-	response, err := httpCl.Do(req)
-	//response, err := httpCl.Post(url, acn.JsonContent, body)
+	response, err := dc.httpClient.Do(req)
 	if err != nil {
 		return orchestratorDetails, err
 	}
@@ -185,7 +183,6 @@ func (dc *DNCClient) SyncNodeNcStatus() (cns.NodeInfoResponse, error) {
 		syncNodeNcStatusURL = fmt.Sprintf(syncNodeNetworkContainersURLFmt,
 			dc.dncEndpointDns, dc.infraVnet, dc.nodeID, dncAPIVersion)
 		nodeInfoResponse cns.NodeInfoResponse
-		httpCl           = acn.GetHttpClient()
 	)
 
 	logger.Printf("[dncclient] SyncNodeNcStatus: Node: %s, InfraVnet: %s", dc.nodeID, dc.infraVnet)
@@ -202,8 +199,7 @@ func (dc *DNCClient) SyncNodeNcStatus() (cns.NodeInfoResponse, error) {
 
 	req.Header.Set(httpReqHeaderKeyAuth, "Bearer "+token)
 	req.Header.Set(httpReqHeaderKeyAccept, acn.JsonContent)
-	response, err := httpCl.Do(req)
-	//response, err := httpc.Get(syncNodeNcStatusURL)
+	response, err := dc.httpClient.Do(req)
 	if err != nil {
 		return nodeInfoResponse, err
 	}

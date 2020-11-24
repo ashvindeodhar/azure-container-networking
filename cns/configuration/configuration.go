@@ -52,11 +52,12 @@ type TelemetrySettings struct {
 }
 
 type ManagedSettings struct {
-	DncEndpointDns            string
-	InfrastructureNetworkID   string
-	NodeID                    string
-	NodeManagedIdentity       string
-	NodeSyncIntervalInSeconds int
+	DncEndpointDns               string
+	InfrastructureNetworkID      string
+	NodeID                       string
+	NodeManagedIdentity          string
+	DncTlsCertificateSubjectName string
+	NodeSyncIntervalInSeconds    int
 }
 
 // This functions reads cns config file and save it in a structure
@@ -137,7 +138,8 @@ func ValidateManagedSettings(config *CNSConfig) bool {
 		if config.ManagedSettings.DncEndpointDns == "" ||
 			config.ManagedSettings.InfrastructureNetworkID == "" ||
 			config.ManagedSettings.NodeID == "" ||
-			config.ManagedSettings.NodeManagedIdentity == "" {
+			config.ManagedSettings.NodeManagedIdentity == "" ||
+			config.ManagedSettings.DncTlsCertificateSubjectName == "" {
 			return false
 		}
 	}
