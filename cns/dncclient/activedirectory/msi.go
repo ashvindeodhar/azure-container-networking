@@ -20,8 +20,6 @@ func (m *MSITokenFetcher) GetServicePrincipalToken(resource string) (*adal.Servi
 	switch {
 	case m.ClientID != "":
 		return adal.NewServicePrincipalTokenFromMSIWithUserAssignedID(msiEndpoint, resource, m.ClientID)
-	//case m.ResourceID != "":
-	//	return adal.NewServicePrincipalTokenFromMSIWithIdentityResourceID(msiEndpoint, resource, m.ResourceID)
 	default:
 		return adal.NewServicePrincipalTokenFromMSI(msiEndpoint, resource)
 	}

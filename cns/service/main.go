@@ -7,10 +7,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-<<<<<<< HEAD
-=======
-	"net/http"
->>>>>>> origin/master
 	"os"
 	"os/signal"
 	"strings"
@@ -336,7 +332,7 @@ func main() {
 			return
 		}
 
-		if dncClient, err = dncclient.NewDNCClient(&cnsconfig.ManagedSettings); err != nil {
+		if dncClient, err = dncclient.NewDNCClient(&cnsconfig.ManagedSettings, &cnsconfig.HttpClientSettings); err != nil {
 			logger.Errorf(err.Error())
 			return
 		}

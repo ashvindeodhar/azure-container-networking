@@ -13,8 +13,12 @@
         "InfrastructureNetworkID": "",
         "NodeID": "",
         "NodeManagedIdentity": "",
-        "DncTlsCertificateSubjectName": "",
+        "DncTlsCertificateSubjectName": "dnc.azure.com",
         "NodeSyncIntervalInSeconds": 30
+    },
+    "HttpClientSettings": {
+        "ConnectionTimeout": 5,
+        "ResponseHeaderTimeout": 120
     },
     "ChannelMode": "Direct",
     "UseHTTPS" : false,

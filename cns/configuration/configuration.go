@@ -19,6 +19,7 @@ const (
 type CNSConfig struct {
 	TelemetrySettings  TelemetrySettings
 	ManagedSettings    ManagedSettings
+	HttpClientSettings HttpClientSettings
 	ChannelMode        string
 	UseHTTPS           bool
 	TLSSubjectName     string
@@ -52,13 +53,28 @@ type TelemetrySettings struct {
 	SnapshotIntervalInMins int
 }
 
+// ManagedSettings indicate settings when CNS is running with managed DNC
 type ManagedSettings struct {
-	DncEndpointDns               string
-	InfrastructureNetworkID      string
-	NodeID                       string
-	NodeManagedIdentity          string
+	// DNS for DNC endpoint
+	DncEndpointDns string
+	// Network ID of the node where CNS is running
+	InfrastructureNetworkID string
+	// ID of the node where CNS is running
+	NodeID string
+	// Managed identity (MSI) client ID
+	NodeManagedIdentity string
+	// Cert SN for DNC for TLS
 	DncTlsCertificateSubjectName string
-	NodeSyncIntervalInSeconds    int
+	// Interval between successive node sync call from CNS to DNC
+	NodeSyncIntervalInSeconds int
+}
+
+// HttpClientSettings - Http client settings to be used when making http calls
+type HttpClientSettings struct {
+	// ConnectionTimeout indicates the timeout used to establish the connection
+	ConnectionTimeout int
+	// ResponseHeaderTimeout indicates the timeout used to get the header
+	ResponseHeaderTimeout int
 }
 
 // This functions reads cns config file and save it in a structure
@@ -127,8 +143,21 @@ func setManagedSettingDefaults(managedSettings *ManagedSettings) {
 func SetCNSConfigDefaults(config *CNSConfig) {
 	setTelemetrySettingDefaults(&config.TelemetrySettings)
 	setManagedSettingDefaults(&config.ManagedSettings)
+	setHttpSettingDefaults(&config.HttpClientSettings)
 	if config.ChannelMode == "" {
 		config.ChannelMode = cns.Direct
+	}
+}
+
+func setHttpSettingDefaults(httpClientSettings *HttpClientSettings) {
+	if httpClientSettings.ConnectionTimeout == 0 {
+		// set the default connection timeout to 5 seconds
+		httpClientSettings.ConnectionTimeout = 5
+	}
+
+	if httpClientSettings.ResponseHeaderTimeout == 0 {
+		// set the default response header timeout to 120 seconds
+		httpClientSettings.ResponseHeaderTimeout = 120
 	}
 }
 

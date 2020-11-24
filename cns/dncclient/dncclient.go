@@ -56,28 +56,20 @@ type NodeRegistrationRequest struct {
 
 // NewDNCClient creates a new DNCClient
 func NewDNCClient(
-	managedSettings *configuration.ManagedSettings) (*DNCClient, error) {
+	managedSettings *configuration.ManagedSettings,
+	httpSettings *configuration.HttpClientSettings) (*DNCClient, error) {
 	tokenFetcher, err := getTokenFetcher(managedSettings.NodeManagedIdentity)
 	if err != nil {
 		return nil, fmt.Errorf("Failed to create DNC client due to error: %v", err)
 	}
 
-	/*
-			"HttpClientSettings": {
-		        "ConnectionTimeout": 5,
-		        "ResponseHeaderTimeout": 120,
-		        "MaxIdleConnsPerHost": 100,
-		        "IdleConnTimeout": 90
-		    },
-	*/
-
 	httpCl := &http.Client{
 		Transport: &http.Transport{
 			TLSClientConfig: &tls.Config{ServerName: managedSettings.DncTlsCertificateSubjectName},
 			DialContext: (&net.Dialer{
-				Timeout: time.Duration(5 /*config.HttpClientSettings.ConnectionTimeout*/) * time.Second,
+				Timeout: time.Duration(httpSettings.ConnectionTimeout) * time.Second,
 			}).DialContext,
-			ResponseHeaderTimeout: time.Duration(120 /*config.HttpClientSettings.ResponseHeaderTimeout*/) * time.Second,
+			ResponseHeaderTimeout: time.Duration(httpSettings.ResponseHeaderTimeout) * time.Second,
 		},
 	}
 
@@ -99,7 +91,7 @@ func getTokenFetcher(
 		return &ad.MSITokenFetcher{ClientID: nodeManagedIdentity}, nil
 	}
 
-	return nil, fmt.Errorf("Empty Node managed identity")
+	return nil, fmt.Errorf("Empty node managed identity")
 }
 
 func (dc *DNCClient) getFreshToken() (string, error) {
