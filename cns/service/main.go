@@ -7,6 +7,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+<<<<<<< HEAD
+=======
+	"net/http"
+>>>>>>> origin/master
 	"os"
 	"os/signal"
 	"strings"
@@ -16,6 +20,7 @@ import (
 	localtls "github.com/Azure/azure-container-networking/server/tls"
 
 	"github.com/Azure/azure-container-networking/cns/ipampoolmonitor"
+	"github.com/Azure/azure-container-networking/cns/nmagentclient"
 
 	"github.com/Azure/azure-container-networking/aitelemetry"
 	"github.com/Azure/azure-container-networking/cnm/ipam"
@@ -44,6 +49,9 @@ const (
 	defaultCNINetworkConfigFileName   = "10-azure.conflist"
 	configFileName                    = "config.json"
 	poolIPAMRefreshRateInMilliseconds = 1000
+
+	// 720 * acn.FiveSeconds sec sleeps = 1Hr
+	maxRetryNodeRegister = 720
 )
 
 // Version is populated by make during build.
@@ -281,8 +289,11 @@ func main() {
 	configuration.SetCNSConfigDefaults(&cnsconfig)
 	logger.Printf("[Azure CNS] Read config :%+v", cnsconfig)
 
-	config.ChannelMode = cnsconfig.ChannelMode
+	if cnsconfig.WireserverIP != "" {
+		nmagentclient.WireserverIP = cnsconfig.WireserverIP
+	}
 
+	config.ChannelMode = cnsconfig.ChannelMode
 	disableTelemetry := cnsconfig.TelemetrySettings.DisableAll
 	if !disableTelemetry {
 		ts := cnsconfig.TelemetrySettings
@@ -355,9 +366,6 @@ func main() {
 			return
 		}
 	}
-
-	//dncclient.Temp()
-	//return
 
 	// Start CNS.
 	if httpRestService != nil {
