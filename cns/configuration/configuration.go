@@ -24,7 +24,7 @@ type CNSConfig struct {
 	UseHTTPS           bool
 	TLSSubjectName     string
 	TLSCertificatePath string
-	TLSEndpoint        string
+	TLSPort            string
 	WireserverIP       string
 }
 
