@@ -2,7 +2,7 @@ package dncclient
 
 import (
 	"bytes"
-	"crypto/tls"
+	//"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -65,7 +65,6 @@ func NewDNCClient(
 
 	httpCl := &http.Client{
 		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{ServerName: managedSettings.DncTlsCertificateSubjectName},
 			DialContext: (&net.Dialer{
 				Timeout: time.Duration(httpSettings.ConnectionTimeout) * time.Second,
 			}).DialContext,

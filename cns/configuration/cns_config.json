@@ -13,7 +13,6 @@
         "InfrastructureNetworkID": "",
         "NodeID": "",
         "NodeManagedIdentity": "",
-        "DncTlsCertificateSubjectName": "dnc.azure.com",
         "NodeSyncIntervalInSeconds": 30
     },
     "HttpClientSettings": {

@@ -63,8 +63,6 @@ type ManagedSettings struct {
 	NodeID string
 	// Managed identity (MSI) client ID
 	NodeManagedIdentity string
-	// Cert SN for DNC for TLS
-	DncTlsCertificateSubjectName string
 	// Interval between successive node sync call from CNS to DNC
 	NodeSyncIntervalInSeconds int
 }
@@ -168,8 +166,7 @@ func ValidateManagedSettings(config *CNSConfig) bool {
 		if config.ManagedSettings.DncEndpointDns == "" ||
 			config.ManagedSettings.InfrastructureNetworkID == "" ||
 			config.ManagedSettings.NodeID == "" ||
-			config.ManagedSettings.NodeManagedIdentity == "" ||
-			config.ManagedSettings.DncTlsCertificateSubjectName == "" {
+			config.ManagedSettings.NodeManagedIdentity == "" {
 			return false
 		}
 	}
