@@ -2,7 +2,6 @@ package dncclient
 
 import (
 	"bytes"
-	//"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -11,7 +10,6 @@ import (
 	"runtime"
 	"time"
 
-	//"github.com/Azure/azure-container-networking/cns"
 	"github.com/Azure/azure-container-networking/cns"
 	"github.com/Azure/azure-container-networking/cns/configuration"
 	"github.com/Azure/azure-container-networking/cns/logger"
@@ -32,7 +30,7 @@ const (
 	registerNodeRetryInterval = 5 * time.Second
 	// TODO: Reset the resource endpoint to dnc.azure.com once the issue with
 	// first party portal encryption is resolved. Using the 3rd party app resource ID as
-	// a workaround for testing.
+	// a workaround for now.
 	//dncResourceEndpoint       = "https://dnc.azure.com/"
 	dncResourceEndpoint = "faabc326-f53f-40a3-b378-4bc9c7ae9130"
 
