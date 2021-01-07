@@ -5,6 +5,7 @@ package restserver
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"encoding/xml"
 	"fmt"
@@ -17,6 +18,7 @@ import (
 
 	"github.com/Azure/azure-container-networking/cns"
 	"github.com/Azure/azure-container-networking/cns/common"
+	"github.com/Azure/azure-container-networking/cns/dncclient"
 	"github.com/Azure/azure-container-networking/cns/fakes"
 	"github.com/Azure/azure-container-networking/cns/logger"
 	"github.com/Azure/azure-container-networking/cns/nmagentclient"
@@ -89,6 +91,12 @@ type createOrUpdateNetworkContainerParams struct {
 	podNamespace string
 }
 
+type FakeTokenFetcher struct{}
+
+func (f *FakeTokenFetcher) GetOAuthToken(ctx context.Context, resource string) (string, error) {
+	return "dummyToken", nil
+}
+
 func getInterfaceInfo(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set(acncommon.ContentType, "application/xml")
 	output, _ := xml.Marshal(hostQueryResponse)
@@ -121,13 +129,30 @@ func nmagentHandler(w http.ResponseWriter, r *http.Request) {
 
 // Wraps the test run with service setup and teardown.
 func TestMain(m *testing.M) {
-	var err error
 	logger.InitLogger("testlogs", 0, 0, "./")
 
 	// Create the service.
 	startService()
 
 	// Setup mock nmagent server
+	nmAgentServer, err := setupMockNMAgentServer()
+	if err != nil {
+		return
+	}
+
+	// Setup mock DNC
+
+	// Run tests.
+	exitCode := m.Run()
+
+	// Cleanup.
+	service.Stop()
+	nmAgentServer.Stop()
+
+	os.Exit(exitCode)
+}
+
+func setupMockNMAgentServer() (*acncommon.Listener, error) {
 	u, err := url.Parse("tcp://" + nmagentEndpoint)
 	if err != nil {
 		fmt.Println(err.Error())
@@ -145,17 +170,10 @@ func TestMain(m *testing.M) {
 	err = nmAgentServer.Start(make(chan error, 1))
 	if err != nil {
 		fmt.Printf("Failed to start agent, err:%v.\n", err)
-		return
+		return nil, err
 	}
 
-	// Run tests.
-	exitCode := m.Run()
-
-	// Cleanup.
-	service.Stop()
-	nmAgentServer.Stop()
-
-	os.Exit(exitCode)
+	return nmAgentServer, nil
 }
 
 func TestSetEnvironment(t *testing.T) {
@@ -912,7 +930,9 @@ func startService() {
 	var err error
 	// Create the service.
 	config := common.ServiceConfig{}
-	service, err = NewHTTPRestService(&config, fakes.NewFakeImdsClient())
+	var fakeTokenFetcher FakeTokenFetcher
+	dncClient := dncclient.NewDNCClient(&fakeTokenFetcher, nil)
+	service, err = NewHTTPRestService(&config, fakes.NewFakeImdsClient(), dncClient)
 	if err != nil {
 		fmt.Printf("Failed to create CNS object %v\n", err)
 		os.Exit(1)

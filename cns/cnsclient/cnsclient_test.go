@@ -14,6 +14,7 @@ import (
 
 	"github.com/Azure/azure-container-networking/cns"
 	"github.com/Azure/azure-container-networking/cns/common"
+	"github.com/Azure/azure-container-networking/cns/dncclient"
 	"github.com/Azure/azure-container-networking/cns/fakes"
 	"github.com/Azure/azure-container-networking/cns/logger"
 	"github.com/Azure/azure-container-networking/cns/restserver"
@@ -122,7 +123,9 @@ func TestMain(m *testing.M) {
 	logger.InitLogger(logName, 0, 0, tmpLogDir+"/")
 	config := common.ServiceConfig{}
 
-	httpRestService, err := restserver.NewHTTPRestService(&config, fakes.NewFakeImdsClient())
+	var fakeTokenFetcher restserver.FakeTokenFetcher
+	dncClient := dncclient.NewDNCClient(&fakeTokenFetcher, nil)
+	httpRestService, err := restserver.NewHTTPRestService(&config, fakes.NewFakeImdsClient(), dncClient)
 	svc = httpRestService.(*restserver.HTTPRestService)
 	svc.Name = "cns-test-server"
 	svc.IPAMPoolMonitor = fakes.NewIPAMPoolMonitorFake()

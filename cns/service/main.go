@@ -332,10 +332,14 @@ func main() {
 			return
 		}
 
-		if dncClient, err = dncclient.NewDNCClient(&cnsconfig.ManagedSettings, &cnsconfig.HttpClientSettings); err != nil {
-			logger.Errorf(err.Error())
+		tokenFetcher, err := dncclient.GetTokenFetcher(cnsconfig.ManagedSettings.NodeManagedIdentity)
+		if err != nil {
+			logger.Errorf("[Azure CNS] Failed to get AAD token fetcher for managed identity: %s",
+				cnsconfig.ManagedSettings.NodeManagedIdentity)
 			return
 		}
+
+		dncClient = dncclient.NewDNCClient(tokenFetcher, &cnsconfig)
 	}
 
 	// Create CNS object.

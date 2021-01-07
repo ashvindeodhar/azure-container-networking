@@ -11,6 +11,7 @@ import (
 
 	"github.com/Azure/azure-container-networking/cns"
 	"github.com/Azure/azure-container-networking/cns/common"
+	"github.com/Azure/azure-container-networking/cns/dncclient"
 	"github.com/Azure/azure-container-networking/cns/fakes"
 )
 
@@ -39,9 +40,19 @@ var (
 	}
 )
 
+/*
+type fakeTokenFetcher struct{}
+
+func (f *fakeTokenFetcher) GetOAuthToken(ctx context.Context, resource string) (string, error) {
+	return "dummyToken", nil
+}
+*/
+
 func getTestService() *HTTPRestService {
 	var config common.ServiceConfig
-	httpsvc, _ := NewHTTPRestService(&config, fakes.NewFakeImdsClient())
+	var fakeTokenFetcher FakeTokenFetcher
+	dncClient := dncclient.NewDNCClient(&fakeTokenFetcher, nil)
+	httpsvc, _ := NewHTTPRestService(&config, fakes.NewFakeImdsClient(), dncClient)
 	svc = httpsvc.(*HTTPRestService)
 	svc.IPAMPoolMonitor = fakes.NewIPAMPoolMonitorFake()
 	setOrchestratorTypeInternal(cns.KubernetesCRD)

@@ -38,6 +38,7 @@ const (
 	httpReqHeaderKeyAccept = "Accept"
 )
 
+// DNCClient struct
 type DNCClient struct {
 	dncEndpointDns      string
 	infraVnet           string
@@ -54,55 +55,40 @@ type NodeRegistrationRequest struct {
 
 // NewDNCClient creates a new DNCClient
 func NewDNCClient(
-	managedSettings *configuration.ManagedSettings,
-	httpSettings *configuration.HttpClientSettings) (*DNCClient, error) {
-	tokenFetcher, err := getTokenFetcher(managedSettings.NodeManagedIdentity)
-	if err != nil {
-		return nil, fmt.Errorf("Failed to create DNC client due to error: %v", err)
-	}
-
+	tokenFetcher ad.TokenFetcher,
+	cnsConfig *configuration.CNSConfig) *DNCClient {
 	httpCl := &http.Client{
 		Transport: &http.Transport{
 			DialContext: (&net.Dialer{
-				Timeout: time.Duration(httpSettings.ConnectionTimeout) * time.Second,
+				Timeout: time.Duration(cnsConfig.HttpClientSettings.ConnectionTimeout) * time.Second,
 			}).DialContext,
-			ResponseHeaderTimeout: time.Duration(httpSettings.ResponseHeaderTimeout) * time.Second,
+			ResponseHeaderTimeout: time.Duration(cnsConfig.HttpClientSettings.ResponseHeaderTimeout) * time.Second,
 		},
 	}
 
 	client := &DNCClient{
-		dncEndpointDns:      managedSettings.DncEndpointDns,
-		infraVnet:           managedSettings.InfrastructureNetworkID,
-		nodeID:              managedSettings.NodeID,
-		nodeManagedIdentity: managedSettings.NodeManagedIdentity,
+		dncEndpointDns:      cnsConfig.ManagedSettings.DncEndpointDns,
+		infraVnet:           cnsConfig.ManagedSettings.InfrastructureNetworkID,
+		nodeID:              cnsConfig.ManagedSettings.NodeID,
+		nodeManagedIdentity: cnsConfig.ManagedSettings.NodeManagedIdentity,
 		tokenFetcher:        tokenFetcher,
 		httpClient:          httpCl,
 	}
 
-	return client, nil
+	return client
 }
 
-func getTokenFetcher(
+func GetTokenFetcher(
 	nodeManagedIdentity string) (ad.TokenFetcher, error) {
 	if nodeManagedIdentity != "" {
-		return &ad.MSITokenFetcher{ClientID: nodeManagedIdentity}, nil
+		return &ad.AADTokenFetcher{ClientID: nodeManagedIdentity}, nil
 	}
 
 	return nil, fmt.Errorf("Empty node managed identity")
 }
 
-func (dc *DNCClient) getFreshToken() (string, error) {
-	spt, err := dc.tokenFetcher.GetServicePrincipalToken(dncResourceEndpoint)
-	if err != nil {
-		return "", fmt.Errorf("Failed to get Service Principle token. Error: %v", err)
-	}
-
-	token, err := ad.GetFreshToken(context.Background(), spt)
-	if err != nil {
-		return "", fmt.Errorf("Failed to get AAD token. Error: %v", err)
-	}
-
-	return token, nil
+func (dc *DNCClient) getOAuthToken() (string, error) {
+	return dc.tokenFetcher.GetOAuthToken(context.Background(), dncResourceEndpoint)
 }
 
 // RegisterNode registers the node with managed DNC
@@ -138,7 +124,7 @@ func (dc *DNCClient) RegisterNode() *cns.SetOrchestratorTypeRequest {
 
 func (dc *DNCClient) registerNode(url string, body io.Reader) (cns.SetOrchestratorTypeRequest, error) {
 	var orchestratorDetails cns.SetOrchestratorTypeRequest
-	token, err := dc.getFreshToken()
+	token, err := dc.getOAuthToken()
 	if err != nil {
 		return orchestratorDetails, err
 	}
@@ -176,7 +162,7 @@ func (dc *DNCClient) SyncNodeNcStatus() (cns.NodeInfoResponse, error) {
 
 	logger.Printf("[dncclient] SyncNodeNcStatus: Node: %s, InfraVnet: %s", dc.nodeID, dc.infraVnet)
 
-	token, err := dc.getFreshToken()
+	token, err := dc.getOAuthToken()
 	if err != nil {
 		return nodeInfoResponse, err
 	}
@@ -196,7 +182,13 @@ func (dc *DNCClient) SyncNodeNcStatus() (cns.NodeInfoResponse, error) {
 	if response.StatusCode == http.StatusOK {
 		err = json.NewDecoder(response.Body).Decode(&nodeInfoResponse)
 	} else {
-		err = fmt.Errorf("%d", response.StatusCode)
+		/*
+			var jsonErr api.jsonErr
+			err = json.NewDecoder(response.Body).Decode(&jsonErr)
+			if err == nil {
+				err = fmt.Errorf("%s")
+			}
+		*/
 	}
 	response.Body.Close()
 
