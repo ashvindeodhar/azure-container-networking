@@ -215,7 +215,8 @@ func GetPolicyType(policy Policy) CNIPolicyType {
 	}
 
 	// Check if the type is ACLPolicy
-	if policy.Type == ACLPolicy {
+	var aclPolicy hcn.AclPolicySetting
+	if err := json.Unmarshal(policy.Data, &aclPolicy); err == nil {
 		return ACLPolicy
 	}
 
